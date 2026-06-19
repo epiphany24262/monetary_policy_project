@@ -1,0 +1,89 @@
+project:
+  title: "央行政策报告的边际信息含量与金融市场反应"
+  subtitle: "基于2006—2025年文本创新度、时间变化与股债市场异质性的Python研究"
+  random_seed: 2026
+
+analysis_sample:
+  start_period: "2006Q1"
+  end_period: "2025Q4"
+
+windows:
+  stock_returns:
+    - [0, 1]
+    - [0, 3]
+    - [-1, 1]
+    - [-1, 3]
+  stock_realized_volatility:
+    - [0, 3]
+    - [0, 5]
+    - [0, 10]
+  yield_curve:
+    - [0, 1]
+    - [0, 3]
+    - [0, 5]
+
+analysis:
+  main_volatility_dependent: "log_rv_0_5"
+  main_similarity: "guidance_novelty"
+  controls:
+    - "pre_event_volatility_20d"
+    - "action_nearby_core"
+    - "post_2019"
+    - "guidance_novelty_x_post_2019"
+  subsamples:
+    pre_2019:
+      start: "2006-01-01"
+      end: "2018-12-31"
+    post_2019:
+      start: "2019-01-01"
+      end: "2025-12-31"
+    covid:
+      start: "2020-01-01"
+      end: "2022-12-31"
+    non_covid:
+      exclude_start: "2020-01-01"
+      exclude_end: "2022-12-31"
+
+text:
+  stopwords:
+    - "的"
+    - "了"
+    - "和"
+    - "与"
+    - "及"
+    - "在"
+    - "对"
+    - "将"
+    - "为"
+    - "是"
+    - "要"
+    - "等"
+    - "中"
+    - "年"
+    - "月"
+  protected_terms:
+    - "流动性合理充裕"
+    - "社会综合融资成本"
+    - "逆周期调节"
+    - "跨周期调节"
+    - "不搞大水漫灌"
+    - "保持货币信贷合理增长"
+    - "精准有力"
+    - "防止资金空转"
+    - "稳增长"
+    - "防风险"
+    - "稳汇率"
+    - "货币政策"
+    - "宏观经济"
+    - "金融市场"
+
+paths:
+  pbc_metadata: "data/processed/pbc_report_metadata.csv"
+  report_sections: "data/processed/report_sections.csv"
+  report_text_dir: "data/interim/report_text"
+  stock_prices: "data/processed/csi300_daily.csv"
+  bond_yields: "data/processed/government_bond_yields.csv"
+  event_calendar: "data/processed/event_calendar.csv"
+  policy_operations: "data/processed/policy_operations.csv"
+  source_registry: "data/source_registry.csv"
+  template_docx: "references/journal_format/统计研究基本版式.docx"

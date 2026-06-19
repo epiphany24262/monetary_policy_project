@@ -1,0 +1,39 @@
+# Python runtime
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
+.idea/
+.claude/
+.DS_Store
+
+# Non-essential dirs
+archive/
+final_submission/
+.codex/
+delivery/
+tests/
+research/
+prompts/
+phases/
+checklists/
+tools/
+output/
+data/raw/
+
+# Top-level: only allow essentials
+/*
+!src/
+!data/
+!paper/
+!notebooks/
+!configs/
+!references/
+!README.md
+!run_all.py
+!requirements.txt
+!environment.yml
+!.gitignore
+!.env.example
