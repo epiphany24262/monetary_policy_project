@@ -42,8 +42,9 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell("features[['report_id','in_formal_sample','guidance_similarity_expanding_tfidf','guidance_novelty','fulltext_novelty_expanding_tfidf','similarity_char_ngram']].dropna(subset=['guidance_novelty']).tail()"),
         nbf.v4.new_markdown_cell("## 11. 主题关注和未预期语调"),
         nbf.v4.new_code_cell("features.loc[features['in_formal_sample'], ['publication_datetime','guidance_z_sentiment','macro_z_sentiment','guidance_z_policy_stance','guidance_attention_growth','guidance_attention_inflation','guidance_unexpected_tone']].describe()"),
-        nbf.v4.new_markdown_cell("## 12. 人工验证样本状态"),
-        nbf.v4.new_code_cell("from src.monetary_policy.text.manual_validation import build_manual_sentence_annotation\nvalidation = build_manual_sentence_annotation(features)\nvalidation"),
+        nbf.v4.new_markdown_cell("## 12. 人工标注完成后的文本验证"),
+        nbf.v4.new_code_cell("from src.monetary_policy.text.manual_validation import load_filled_annotations, has_filled_annotations\nprint('人工标注已完成:', has_filled_annotations())\nfilled = load_filled_annotations()\nprint('标注句子数:', len(filled))\nprint('标注人:', filled['reviewer'].unique())\nprint()\nprint('情感标签分布:')\nprint(filled['manual_sentiment_label'].value_counts())\nprint()\nprint('政策倾向标签分布:')\nprint(filled['manual_policy_stance_label'].value_counts())\nprint()\nprint('主题标签分布:')\nprint(filled['manual_topic_label'].value_counts())"),
+        nbf.v4.new_code_cell("from src.monetary_policy.text.validation_report import run_text_validation\nvresult = run_text_validation()\nprint(f\"情感 Accuracy: {vresult['summary']['sentiment_accuracy']:.4f}\")\nprint(f\"情感 Macro-F1: {vresult['summary']['sentiment_macro_f1']:.4f}\")\nprint(f\"政策倾向 Accuracy: {vresult['summary']['stance_accuracy']:.4f}\")\nprint(f\"政策倾向 Macro-F1: {vresult['summary']['stance_macro_f1']:.4f}\")\nprint(f\"主题 Accuracy: {vresult['summary']['topic_accuracy']:.4f}\")\nprint(f\"主题 Macro-F1: {vresult['summary']['topic_macro_f1']:.4f}\")\nprint()\nprint('不一致句子总数:', vresult['summary']['disagreement_count'])\nprint('  情感不一致:', vresult['summary']['disagreement_sentiment_count'])\nprint('  政策倾向不一致:', vresult['summary']['disagreement_stance_count'])\nprint('  主题不一致:', vresult['summary']['disagreement_topic_count'])"),
         nbf.v4.new_markdown_cell("## 13. 股票数据清洗"),
         nbf.v4.new_code_cell("stock = pd.read_csv(ROOT / 'data/processed/csi300_daily.csv', parse_dates=['date'])\nstock[['date','close','simple_return','volatility_20d']].tail()"),
         nbf.v4.new_markdown_cell("## 14. 债券收益率曲线数据"),
@@ -70,7 +71,7 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell("from src.monetary_policy.analysis.robustness import similarity_robustness\nsimilarity_robustness(stock_panel)"),
         nbf.v4.new_markdown_cell("## 24. 图表源数据"),
         nbf.v4.new_code_cell("sorted([p.name for p in (ROOT / 'output/figures').glob('figure*.png')])"),
-        nbf.v4.new_markdown_cell("## 25. 结论和局限\n\n文本创新度、股票收益和收益率曲线结果均由上述模块现场计算。解释时只讨论相关性，不把事件研究回归写成因果识别。人工句子标签文件仅完成抽样，标签列保持空白，等待人工复核。"),
+        nbf.v4.new_markdown_cell("## 25. 结论和局限\n\n文本创新度、股票收益和收益率曲线结果均由上述模块现场计算。解释时只讨论相关性，不把事件研究回归写成因果识别。\n\n### 文本验证结论\n\n人工标注已完成（标注人：罗允绩，240 句，涵盖政策指引和宏观章节）。验证结论如下：\n\n- **金融情感**：自动词典的句子级准确率为 26.25%，主要问题是过度预测 positive（157/184 人工标注 neutral 的句子被自动分类为 positive）。原因在于姜富伟等和 Du et al. 的中文金融情感词典面向文档级金融市场分析设计，直接用于句子级政策文本时会产生系统性正向偏误。文档级聚合后的标准化指标在回归中更为稳健。\n- **政策倾向**：自动词典的句子级准确率为 14.17%，hawkish 召回率为 0%。PBC 领域鹰鸽词典（v2 已扩展至 35+33 词）在句子级仍存在严重覆盖不足，原因是政策倾向常通过隐含、间接表达传递。文档级聚合可在一定程度上缓解这一问题。\n- **主题分类**：v2 主题词典扩展后准确率从 38.33% 提升至 58.75%，growth 召回率从 35.1% 提升至 62.3%，financial_stability 召回率从 0% 提升至 36.8%。但 risk 和 inflation 的召回率仍偏低。\n\n词典修订版本已保存在 `data/dictionaries/lexicon_versions/` 目录下，含 v1→v2 变更报告。"),
     ]
     nb = nbf.v4.new_notebook()
     nb["metadata"] = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}}

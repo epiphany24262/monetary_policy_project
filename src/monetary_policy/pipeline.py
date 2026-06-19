@@ -30,6 +30,7 @@ from .text.similarity import (
     adjacent_word_tfidf_similarity,
 )
 from .text.manual_validation import build_manual_sentence_annotation
+from .text.validation_report import run_text_validation, write_validation_outputs
 from .visualization.market_figures import (
     plot_curve_reactions,
     plot_similarity_scatter,
@@ -252,7 +253,9 @@ def build_results() -> dict:
     verify_final_analysis_plan()
     build_research_documents()
     text_features = build_text_features()
-    validation_summary = build_manual_sentence_annotation(text_features)
+    annotation_summary = build_manual_sentence_annotation(text_features)
+    text_validation = run_text_validation()
+    write_validation_outputs(text_validation)
     stock_panel = build_stock_event_panel(text_features)
     stock_panel.to_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv", index=False, encoding="utf-8-sig")
     vol_paths = build_stock_volatility_paths(stock_panel)
@@ -319,7 +322,7 @@ def build_results() -> dict:
         "tables": tables,
         "main_vol": main_vol,
         "egarch": egarch,
-        "validation_summary": validation_summary,
+        "text_validation": text_validation["summary"],
     }
 
 
@@ -338,7 +341,9 @@ def run_pipeline(execute_nb: bool = True) -> dict:
         "main_volatility_interaction_beta": results["main_vol"]["params"].get("guidance_novelty_x_post_2019"),
         "main_volatility_post_2019_total_effect": results["main_vol"]["post_2019_total_effect"],
         "main_volatility_effect_percent": results["main_vol"]["economic_effect"]["one_unit_guidance_novelty_percent_change_in_rv"],
-        "manual_validation_rows": results["validation_summary"]["rows"],
+        "manual_validation_rows": results["text_validation"]["total_sentences"],
+        "text_validation_sentiment_accuracy": results["text_validation"]["sentiment_accuracy"],
+        "text_validation_topic_accuracy": results["text_validation"]["topic_accuracy"],
         "notebook_returncode": notebook_result["returncode"],
         "pdf_pages": pdf_check["page_count"],
         "final_submission_files": submission_summary["included_files"],
