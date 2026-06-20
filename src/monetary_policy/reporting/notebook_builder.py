@@ -116,6 +116,14 @@ def build_notebook() -> None:
 
 
 def execute_notebook() -> dict:
+    nb = nbf.read(str(NOTEBOOK_PATH), as_version=4)
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            cell["outputs"] = []
+            cell["execution_count"] = None
+    NOTEBOOK_PATH.write_text(nbf.writes(nb), encoding="utf-8")
+
+    kernel_name = "monetary_policy_current_python"
     cmd = [
         sys.executable,
         "-m",
@@ -127,14 +135,31 @@ def execute_notebook() -> dict:
         "--inplace",
         str(NOTEBOOK_PATH),
         "--ExecutePreprocessor.timeout=420",
+        f"--ExecutePreprocessor.kernel_name={kernel_name}",
     ]
     tmp = ROOT / ".ipython_nbconvert_tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     (tmp / "profile_default").mkdir(parents=True, exist_ok=True)
     (tmp / "profile_default" / "ipython_config.py").write_text("c = get_config()\nc.HistoryManager.enabled = False\n", encoding="utf-8")
+    kernel_dir = tmp / "kernels" / kernel_name
+    kernel_dir.mkdir(parents=True, exist_ok=True)
+    (kernel_dir / "kernel.json").write_text(
+        json.dumps(
+            {
+                "argv": [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+                "display_name": "Monetary Policy Project Python",
+                "language": "python",
+                "env": {"PYTHONNOUSERSITE": "1"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env["JUPYTER_ALLOW_INSECURE_WRITES"] = "true"
     env["IPYTHONDIR"] = str(tmp)
+    env["JUPYTER_PATH"] = str(tmp) + (os.pathsep + env["JUPYTER_PATH"] if env.get("JUPYTER_PATH") else "")
     env["JUPYTER_RUNTIME_DIR"] = str(tmp / "runtime")
     (tmp / "runtime").mkdir(exist_ok=True)
     proc = subprocess.run(cmd, cwd=ROOT, env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=600)
@@ -142,4 +167,25 @@ def execute_notebook() -> dict:
     (ROOT / "output" / "results" / "notebook_execution_refactor.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr)
+    executed = nbf.read(str(NOTEBOOK_PATH), as_version=4)
+    error_outputs: list[str] = []
+    stale_payloads: list[str] = []
+    for cell_idx, cell in enumerate(executed.cells):
+        for output_idx, output in enumerate(cell.get("outputs", [])):
+            if output.get("output_type") == "error":
+                error_outputs.append(f"cell {cell_idx} output {output_idx}: {output.get('ename')} {output.get('evalue')}")
+            payload_parts = []
+            for key in ("text", "ename", "evalue", "traceback"):
+                value = output.get(key)
+                if value is not None:
+                    payload_parts.append(str(value))
+            data = output.get("data", {})
+            if isinstance(data, dict):
+                payload_parts.extend(str(value) for value in data.values())
+            payload = "\n".join(payload_parts)
+            if "A module that was compiled using NumPy 1.x" in payload or "ImportError" in payload:
+                stale_payloads.append(f"cell {cell_idx} output {output_idx}")
+    if error_outputs or stale_payloads:
+        detail = {"error_outputs": error_outputs, "stale_payloads": stale_payloads}
+        raise RuntimeError(f"Notebook execution left invalid outputs: {json.dumps(detail, ensure_ascii=False)}")
     return result

@@ -5,7 +5,6 @@ import math
 
 import numpy as np
 import pandas as pd
-from arch import arch_model
 
 from ..config import load_config
 from ..data.market_prices import load_stock_prices
@@ -73,10 +72,21 @@ def run_stock_volatility_models(panel: pd.DataFrame) -> tuple[pd.DataFrame, dict
         "one_unit_guidance_novelty_log_rv_beta": beta,
         "one_unit_guidance_novelty_percent_change_in_rv": (np.exp(beta) - 1) * 100,
     }
-    return table, main, run_egarch_diagnostic(panel)
+    return table, main, _legacy_arx_mean_diagnostic_not_run()
 
 
-def run_egarch_diagnostic(panel: pd.DataFrame) -> dict:
+def _legacy_arx_mean_diagnostic_not_run() -> dict:
+    return {
+        "status": "not_run",
+        "method": "legacy_arx_mean_equation_diagnostic_disabled",
+        "note": "The old arch_model mean='ARX' diagnostic is not part of the formal pipeline. Formal daily Student-t EGARCH-X variance-equation results are produced by analysis/egarch_x.py.",
+    }
+
+
+def run_legacy_arx_mean_diagnostic(panel: pd.DataFrame) -> dict:
+    """Legacy diagnostic retained for audit only; not called by the formal pipeline."""
+    from arch import arch_model
+
     stock = load_stock_prices().copy()
     events = load_event_calendar()[["event_id", "equity_event_date"]].merge(
         panel[["event_id", "guidance_novelty"]], on="event_id", how="left"

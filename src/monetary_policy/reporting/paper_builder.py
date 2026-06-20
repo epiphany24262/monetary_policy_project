@@ -21,6 +21,7 @@ Formatting reference:
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -847,6 +848,9 @@ def _paper_numbers(results: dict) -> dict:
     curve_main = curve[curve["dependent"] == "delta_slope_bp_0_3"].iloc[0]
     primary_cross = cross[cross["tone_aggregation"].eq("policy_relevant_mean")]
     primary_cross_row = primary_cross.iloc[0] if len(primary_cross) else pd.Series(dtype=object)
+    novelty = pd.to_numeric(results["stock_panel"]["guidance_novelty"], errors="coerce").dropna()
+    novelty_std = float(novelty.std(ddof=1)) if len(novelty) > 1 else float("nan")
+    stock_one_sd_log_effect = float(main["params"]["guidance_novelty"] * novelty_std) if pd.notna(novelty_std) else float("nan")
     max_power = power.sort_values("power").iloc[-1] if len(power) else pd.Series(dtype=object)
     best_learning = learning.sort_values(["task", "train_ratio"]).groupby("task").tail(1) if len(learning) else pd.DataFrame()
     return {
@@ -857,6 +861,9 @@ def _paper_numbers(results: dict) -> dict:
         "stock_total": main["post_2019_total_effect"]["estimate"],
         "stock_total_p": main["post_2019_total_effect"]["p_value"],
         "stock_effect_percent": main["economic_effect"]["one_unit_guidance_novelty_percent_change_in_rv"],
+        "guidance_novelty_std": novelty_std,
+        "stock_one_sd_log_effect": stock_one_sd_log_effect,
+        "stock_one_sd_effect_percent": (math.exp(stock_one_sd_log_effect) - 1) * 100 if pd.notna(stock_one_sd_log_effect) else float("nan"),
         "curve_beta": curve_main["beta"],
         "curve_p": curve_main["p_value"],
         "curve_interaction": curve_main["post_2019_interaction_beta"],
@@ -918,6 +925,12 @@ def _add_final_references(doc: Document) -> list[dict[str, str]]:
         ("[6]", "Tetlock P. C. Giving Content to Investor Sentiment: The Role of Media in the Stock Market. Journal of Finance, 2007, 62(3): 1139-1168."),
         ("[7]", "Nelson D. B. Conditional Heteroskedasticity in Asset Returns: A New Approach. Econometrica, 1991, 59(2): 347-370."),
         ("[8]", "中国人民银行：《货币政策执行报告》，2006年第1季度至2026年第1季度，公开发布文本。"),
+        ("[9]", "McMahon M., Schipke A. and Li X. China's Monetary Policy Communication: Frameworks, Impact, and Recommendations. IMF Working Paper, 2018/244."),
+        ("[10]", "Blinder A. S., Ehrmann M., Fratzscher M., de Haan J. and Jansen D. Central Bank Communication and Monetary Policy: A Survey of Theory and Evidence. Journal of Economic Literature, 2008, 46(4): 910-945."),
+        ("[11]", "Hansen S. and McMahon M. Shocking Language: Understanding the Macroeconomic Effects of Central Bank Communication. Journal of International Economics, 2016, 99: S114-S133."),
+        ("[12]", "Nakamura E. and Steinsson J. High-Frequency Identification of Monetary Non-Neutrality: The Information Effect. Quarterly Journal of Economics, 2018, 133(3): 1283-1330."),
+        ("[13]", "Jarocinski M. and Karadi P. Deconstructing Monetary Policy Surprises: The Role of Information Shocks. American Economic Journal: Macroeconomics, 2020, 12(2): 1-43."),
+        ("[14]", "Kuttner K. N. Monetary Policy Surprises and Interest Rates: Evidence from the Fed Funds Futures Market. Journal of Monetary Economics, 2001, 47(3): 523-544."),
     ]
     for label, text in refs:
         _add_body_paragraph(doc, f"{label} {text}")
@@ -929,6 +942,9 @@ def _write_paper_audits(numbers: dict, refs: list[dict[str, str]], results: dict
     number_rows = [
         {"item": "stock_guidance_novelty_beta", "value": numbers["stock_beta"], "source": "output/results/stock_volatility_main.json"},
         {"item": "stock_guidance_novelty_p", "value": numbers["stock_p"], "source": "output/results/stock_volatility_main.json"},
+        {"item": "stock_guidance_novelty_std", "value": numbers["guidance_novelty_std"], "source": "data/processed/refactor_stock_event_panel.csv"},
+        {"item": "stock_guidance_novelty_one_sd_effect_percent", "value": numbers["stock_one_sd_effect_percent"], "source": "output/results/stock_volatility_main.json + data/processed/refactor_stock_event_panel.csv"},
+        {"item": "stock_guidance_novelty_one_unit_effect_percent", "value": numbers["stock_effect_percent"], "source": "output/results/stock_volatility_main.json"},
         {"item": "stock_post_2019_total_effect", "value": numbers["stock_total"], "source": "output/results/stock_volatility_main.json"},
         {"item": "bond_unexpected_tone_beta", "value": numbers["curve_beta"], "source": "output/results/yield_curve_results.csv"},
         {"item": "egarch_x_novelty_coef", "value": numbers["egarch_novelty"], "source": "output/results/daily_egarch_x_results.json"},
@@ -1091,7 +1107,7 @@ def build_paper(results: dict) -> None:
         "固定路线的含义是先确定理论上可以解释的问题，再让数据和模型回答该问题。政策指引创新度进入股票波动主检验，是因为它衡量报告相对历史政策文本的新增信息；Student-t EGARCH-X进入日度稳健性，是因为日收益率存在厚尾和条件异方差；跨拟合语调用于债券探索，是因为句子级监督模型可以减少同一文本既训练又解释市场反应的泄漏风险。这些选择在估计前已经锁定，后文只报告结果，不再根据显著性改换窗口、变量或分布。",
         "本文没有把课设写成单纯的回归练习，而是把数据处理过程本身作为研究对象之一。央行报告的PDF抽取、章节识别、发布时间对齐、交易日映射、文本向量化和事件窗口构造，每一步都会影响最终系数。将这些步骤写入代码并生成可检查的中间表，可以让读者判断结果来自哪一项处理，而不是只看到最后一张回归表。",
         "文献上，姜富伟等[1]提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等[2]强调资产价格反应来自未预期信息；尚玉皇等[3]讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
-        "国际研究中，Gurkaynak等[5]区分货币政策行动和声明对资产价格的影响，Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
+        "国际研究中，Blinder等[10]系统总结央行沟通的理论和经验证据，McMahon等[9]讨论中国央行沟通制度及其市场影响。Gurkaynak等[5]区分政策行动和声明信息，Kuttner[14]用联邦基金期货识别未预期政策变化，Hansen和McMahon[11]把央行文本中的宏观信息与政策指引区分开来。Nakamura和Steinsson[12]、Jarocinski和Karadi[13]进一步提醒，公告中的央行信息效应可能使市场反应不能被简单解释为单纯宽松或紧缩冲击。Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
     ]:
         _add_body_paragraph(doc, text)
 
@@ -1111,10 +1127,10 @@ def build_paper(results: dict) -> None:
         "语境门控先判断句子是否处于货币政策语境中，再解释鹰鸽方向。这样可以把政策四分类和条件三分类分开：四分类检验dovish、hawkish、neutral和irrelevant；条件三分类只在人工标为政策相关的句子中比较dovish、hawkish和neutral。",
         f"实时重打分的人工验证结果显示，情感三分类准确率为{_fmt(numbers['sentiment_acc'])}，Macro-F1为{_fmt(numbers['sentiment_f1'])}；政策四分类准确率为{_fmt(numbers['stance_acc'])}，Macro-F1为{_fmt(numbers['stance_f1'])}；条件三分类准确率为{_fmt(numbers['direction_acc'])}，Macro-F1为{_fmt(numbers['direction_f1'])}；主题分类准确率为{_fmt(numbers['topic_acc'])}，Macro-F1为{_fmt(numbers['topic_f1'])}。",
         f"字符TF-IDF+LinearSVC的按报告分组交叉验证显示，情感Accuracy为{_fmt(numbers['svc_sentiment_acc'])}、Macro-F1为{_fmt(numbers['svc_sentiment_f1'])}；政策四分类Accuracy为{_fmt(numbers['svc_stance_acc'])}、Macro-F1为{_fmt(numbers['svc_stance_f1'])}；条件三分类Accuracy为{_fmt(numbers['svc_direction_acc'])}、Macro-F1为{_fmt(numbers['svc_direction_f1'])}；主题硬分类Accuracy为{_fmt(numbers['svc_topic_acc'])}、Macro-F1为{_fmt(numbers['svc_topic_f1'])}。",
-        "监督验证采用按报告分组的交叉验证，而不是随机句子切分。央行报告中有大量模板化表达，如果相似句子同时出现在训练集和测试集，模型看似准确，实则只是在识别固定句式。按报告分组以后，测试折中的句子来自未见过的报告，指标更接近未来季度应用场景。近重复文本合并折号进一步降低公式化表述造成的泄漏。",
+        "监督验证采用按报告分组的交叉验证，而不是随机句子切分。央行报告中有大量模板化表达，如果相似句子同时出现在训练集和测试集，模型看似准确，实则只是在识别固定句式。按报告分组以后，测试折中的句子来自未见过的报告，指标更接近未来季度应用场景。将近重复文本合并为同一分组进一步降低公式化表述造成的泄漏。",
         "主题硬分类的Macro-F1明显低于情感和政策方向任务，因此主题模块不作为监督分类核心结果。正式研究使用连续主题关注度描述增长、通胀、风险、汇率、金融稳定和房地产等语境变化，避免把稀疏主题标签误写成稳定分类器。",
         "学习曲线的作用不是证明当前人工标签已经充分，而是说明继续增加标签的边际收益和薄弱类别。若训练比例提高后Macro-F1仍然波动，说明类别稀疏和句式相似性仍在限制泛化；若准确率上升但少数类别召回率低，说明模型主要学到了多数类。本文据此把人工验证定位为测量可靠性检查，而不是用监督模型替代全部文本指标。",
-        "分组交叉验证同时按报告和近重复句子合并折号，防止同一报告或高度公式化表述跨折泄漏。学习曲线表明，240句人工样本已经足以暴露词典和轻量监督模型的主要误差来源，但对少数类别的稳定识别仍然受样本量限制。后续若增加标注，应优先补充hawkish、negative和房地产主题句，而不是为追求显著性改动已有标签。",
+        "分组交叉验证同时按报告和近重复句子分组，防止同一报告或高度公式化表述跨折泄漏。学习曲线表明，240句人工样本已经足以暴露词典和轻量监督模型的主要误差来源，但对少数类别的稳定识别仍然受样本量限制。后续若增加标注，应优先补充hawkish、negative和房地产主题句，而不是为追求显著性改动已有标签。",
     ]:
         _add_body_paragraph(doc, text)
 
@@ -1172,7 +1188,7 @@ def build_paper(results: dict) -> None:
     _add_level1_heading(doc, "五、股票事件研究主检验")
     for text in [
         "股票主模型以发布后五个交易日实际波动率的对数为被解释变量，解释变量包括政策指引创新度、发布前20日波动率、附近政策操作、2019年后虚拟变量和创新度与2019年后的交互项。模型不加入线性时间趋势；趋势项只进入稳健性表。",
-        f"估计结果显示，政策指引创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}；2019年交互项为{_fmt(numbers['stock_interaction'])}，p值为{_fmt(numbers['stock_interaction_p'])}；2019年后总效应为{_fmt(numbers['stock_total'])}，联合检验p值为{_fmt(numbers['stock_total_p'])}。一单位创新度对应的实际波动率变化约为{_fmt(numbers['stock_effect_percent'])}%。",
+        f"估计结果显示，政策指引创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}；2019年交互项为{_fmt(numbers['stock_interaction'])}，p值为{_fmt(numbers['stock_interaction_p'])}；2019年后总效应为{_fmt(numbers['stock_total'])}，联合检验p值为{_fmt(numbers['stock_total_p'])}。政策指引创新度提高一个样本标准差（{_fmt(numbers['guidance_novelty_std'])}），与发布后五日实际波动率约提高{_fmt(numbers['stock_one_sd_effect_percent'], 1)}%相关。",
         "主回归采用HC3稳健标准误，是因为季度事件样本数量有限，少数高波动事件可能对普通最小二乘标准误产生较大影响。发布前20日波动率控制市场原有不确定性，附近政策操作控制报告发布前后的政策环境，2019年后交互项用于刻画政策框架和市场结构变化。该设定保留不显著的交互和总效应，避免把分样本估计变成事后筛选。",
         "实际波动率使用五个交易日窗口，是在季度报告发布频率和市场吸收速度之间的折中。窗口过短可能只捕捉发布当日流动性冲击，窗口过长则更容易混入其他宏观新闻。本文把五日窗口作为核心主检验，并把其他窗口限制在辅助表中，目的不是寻找最显著结果，而是让主结论围绕一个事先确定的市场反应口径展开。",
         "上述结果应解释为短窗口条件相关关系。季度报告发布前后仍可能伴随宏观数据、全球风险偏好和其他政策操作，因此本文不把事件研究回归写成强因果识别。方向一致只有在相应统计检验支持时才称为显著；若p值较大，只讨论经济含义和不确定性。",
