@@ -77,17 +77,32 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
 
     df = pd.read_excel(annotation_path)
 
-    # ── Compute auto categorical labels ──
-    df["auto_sentiment"] = df["auto_sentiment_score"].map(_auto_sentiment_label)
-    df["auto_stance"] = df["auto_policy_stance_score"].map(_auto_stance_label)
-
-    # Auto topic: re-score each sentence
+    # ── Recompute all automatic scores with the current lexicon ──
+    # The annotation workbook stores scores generated when the sample was first
+    # created.  Those columns become stale after a lexicon revision.  Validation
+    # must therefore re-score every sentence instead of reusing cached values.
     lexicon = build_combined_lexicon()
-    auto_topics = []
-    for _, row in df.iterrows():
-        sent_scores = score_text(str(row["sentence"]), lexicon)
-        auto_topics.append(_auto_topic_label(sent_scores))
-    df["auto_topic"] = auto_topics
+    rescored = [score_text(str(sentence), lexicon) for sentence in df["sentence"]]
+    df["current_auto_sentiment_score"] = [row["normalized_sentiment"] for row in rescored]
+    df["current_auto_policy_stance_score"] = [row["normalized_policy_stance"] for row in rescored]
+    df["auto_sentiment"] = df["current_auto_sentiment_score"].map(_auto_sentiment_label)
+    df["auto_stance"] = df["current_auto_policy_stance_score"].map(_auto_stance_label)
+    df["auto_topic"] = [_auto_topic_label(row) for row in rescored]
+
+    stored_sentiment_mismatch = int(
+        (~np.isclose(
+            pd.to_numeric(df.get("auto_sentiment_score"), errors="coerce"),
+            df["current_auto_sentiment_score"],
+            equal_nan=True,
+        )).sum()
+    ) if "auto_sentiment_score" in df.columns else 0
+    stored_stance_mismatch = int(
+        (~np.isclose(
+            pd.to_numeric(df.get("auto_policy_stance_score"), errors="coerce"),
+            df["current_auto_policy_stance_score"],
+            equal_nan=True,
+        )).sum()
+    ) if "auto_policy_stance_score" in df.columns else 0
 
     # ── Standardize manual labels ──
     df["manual_sentiment"] = df["manual_sentiment_label"].str.strip().str.lower()
@@ -122,16 +137,27 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
     illegal["topic"] = sorted(set(df["manual_topic"]) - valid_topic)
 
     # ── Metrics for each task ──
+    policy_relevant = df["manual_stance"] != "irrelevant"
     tasks = {
         "sentiment": {
             "y_true": df["manual_sentiment"],
             "y_pred": df["auto_sentiment"],
             "labels": ["positive", "negative", "neutral"],
         },
+        # Backward-compatible full four-class view.  The lexicon score itself
+        # does not model the separate relevance/irrelevance decision, so this
+        # metric is expected to be low and is retained as a diagnostic only.
         "policy_stance": {
             "y_true": df["manual_stance"],
             "y_pred": df["auto_stance"],
             "labels": ["dovish", "hawkish", "neutral", "irrelevant"],
+        },
+        # Directional performance on sentences manually judged policy-relevant.
+        # This is the fair evaluation of the signed stance score.
+        "policy_direction": {
+            "y_true": df.loc[policy_relevant, "manual_stance"],
+            "y_pred": df.loc[policy_relevant, "auto_stance"],
+            "labels": ["dovish", "hawkish", "neutral"],
         },
         "topic": {
             "y_true": df["manual_topic"],
@@ -206,6 +232,13 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
         "stance_accuracy": results["policy_stance"]["accuracy"],
         "stance_macro_f1": results["policy_stance"]["macro_f1"],
         "stance_weighted_f1": results["policy_stance"]["weighted_f1"],
+        "policy_direction_accuracy": results["policy_direction"]["accuracy"],
+        "policy_direction_macro_f1": results["policy_direction"]["macro_f1"],
+        "policy_direction_weighted_f1": results["policy_direction"]["weighted_f1"],
+        "score_source": "current_lexicon_rescore",
+        "lexicon_version": int(getattr(lexicon, "version", 0)),
+        "stored_sentiment_score_mismatch_count": stored_sentiment_mismatch,
+        "stored_stance_score_mismatch_count": stored_stance_mismatch,
         "topic_accuracy": results["topic"]["accuracy"],
         "topic_macro_f1": results["topic"]["macro_f1"],
         "topic_weighted_f1": results["topic"]["weighted_f1"],
@@ -223,6 +256,7 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
     return {
         "sentiment": results["sentiment"],
         "policy_stance": results["policy_stance"],
+        "policy_direction": results["policy_direction"],
         "topic": results["topic"],
         "disagreements": disagrees,
         "summary": summary,
@@ -245,7 +279,7 @@ def write_validation_outputs(validation: dict) -> dict[str, Path]:
     # ── 1. Excel metrics ──
     xlsx_path = diag / "text_validation_metrics.xlsx"
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
-        for task_name in ["sentiment", "policy_stance", "topic"]:
+        for task_name in ["sentiment", "policy_stance", "policy_direction", "topic"]:
             task = validation[task_name]
             # Class-level
             pd.DataFrame(task["class_report"]).to_excel(
@@ -266,7 +300,9 @@ def write_validation_outputs(validation: dict) -> dict[str, Path]:
     disagree_path = diag / "text_label_disagreements.xlsx"
     dis_cols = [
         "annotation_id", "report_id", "report_period", "section", "sentence",
+        "auto_sentiment_score", "current_auto_sentiment_score",
         "auto_sentiment", "manual_sentiment",
+        "auto_policy_stance_score", "current_auto_policy_stance_score",
         "auto_stance", "manual_stance",
         "auto_topic", "manual_topic",
         "disagree_sentiment", "disagree_stance", "disagree_topic",
@@ -284,6 +320,7 @@ def write_validation_outputs(validation: dict) -> dict[str, Path]:
     cm_configs = [
         ("sentiment", "figure_sentiment_confusion_matrix.png", "Sentiment Confusion Matrix"),
         ("policy_stance", "figure_policy_confusion_matrix.png", "Policy Stance Confusion Matrix"),
+        ("policy_direction", "figure_policy_direction_confusion_matrix.png", "Policy Direction Confusion Matrix"),
         ("topic", "figure_topic_confusion_matrix.png", "Topic Confusion Matrix"),
     ]
     for task_name, filename, title_en in cm_configs:
@@ -330,7 +367,8 @@ def _build_markdown_report(validation: dict) -> str:
         "| 任务 | Accuracy | Macro-F1 | Weighted-F1 |",
         "|------|----------|----------|-------------|",
         f"| 情感 | {s['sentiment_accuracy']:.4f} | {s['sentiment_macro_f1']:.4f} | {s['sentiment_weighted_f1']:.4f} |",
-        f"| 政策倾向 | {s['stance_accuracy']:.4f} | {s['stance_macro_f1']:.4f} | {s['stance_weighted_f1']:.4f} |",
+        f"| 政策倾向（四分类诊断） | {s['stance_accuracy']:.4f} | {s['stance_macro_f1']:.4f} | {s['stance_weighted_f1']:.4f} |",
+        f"| 政策方向（仅相关句） | {s['policy_direction_accuracy']:.4f} | {s['policy_direction_macro_f1']:.4f} | {s['policy_direction_weighted_f1']:.4f} |",
         f"| 主题 | {s['topic_accuracy']:.4f} | {s['topic_macro_f1']:.4f} | {s['topic_weighted_f1']:.4f} |",
         "",
         "## 系统性错误判断",
@@ -342,7 +380,7 @@ def _build_markdown_report(validation: dict) -> str:
     else:
         lines.append("✅ 未检测到明显系统性错误。零星误判在词典方法预期范围内。")
 
-    for task_name in ["sentiment", "policy_stance", "topic"]:
+    for task_name in ["sentiment", "policy_stance", "policy_direction", "topic"]:
         task = validation[task_name]
         lines.extend([
             "",

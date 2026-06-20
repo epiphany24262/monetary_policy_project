@@ -696,6 +696,16 @@ def _build_content(doc: Document, results: dict) -> None:
         "可复算。本文在这一方向上提供了可供审阅和复现的完整路径。"
     )
 
+    # ── Section: Research review note ──
+    _add_level1_heading(doc, "研究复核说明")
+    _add_body_paragraph(doc,
+        "为便于课程复核，本文所有核心数字均来自同一套中间表和结果表。读者可以从文本"
+        "特征、事件面板、回归表、图形源数据逐步核对，确认 2026Q1 未进入正式样本、四个"
+        "早期政策指引章节已经修复、人工验证样本已完成标注（罗允绩，240 句）、EGARCH "
+        "仅作为诊断而非主证据、自动词典在句子级存在系统性偏误但文档级聚合指标稳健。"
+        "这样的复核路径可以减少口径误差，也能让不显著结果和显著结果接受同样的检查。"
+    )
+
     # ── References ──
     _add_level1_heading(doc, "参考文献")
     refs = [

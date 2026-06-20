@@ -63,3 +63,14 @@ python -m venv .venv
 ## 提交前事项
 
 论文封面中的作者、学号和任课教师需要手工补齐。若课程平台要求提交原始市场数据，请先确认数据再分发许可。
+
+## 文本分类实验性审计
+
+`experiments/` 中保存一组不会改变冻结主模型的有限探索：
+
+```bash
+python experiments/text_pipeline_probe.py
+python experiments/crossfit_tone_market_probe.py
+```
+
+实验确认旧验证流程曾复用标注模板中的过期自动分数；当前验证代码已改为使用最新词典重新计分，并单独报告“政策相关句的方向识别”。字符 TF-IDF + LinearSVC 在按报告分组的交叉验证中可作为情感和政策倾向的替代测量，但跨拟合政策语调并未稳定改善债券回归，因此不替换文本创新度主线。完整结论见 `EXPERIMENTAL_ROUTE_ASSESSMENT.md`。

@@ -52,24 +52,23 @@ def build_manual_sentence_annotation(text_features: pd.DataFrame | None = None, 
     # ── Guard: never overwrite filled annotations ──
     if FILLED_PATH.exists():
         filled = pd.read_excel(FILLED_PATH)
-        # Refresh the unfilled template only if it doesn't exist yet
-        if not ANNOTATION_PATH.exists():
-            template = filled[
-                [
-                    "annotation_id", "report_id", "report_period", "section",
-                    "sentence", "auto_sentiment_score", "auto_policy_stance_score",
-                    "manual_sentiment_label", "manual_policy_stance_label",
-                    "manual_topic_label", "reviewer", "review_note",
-                ]
-            ].copy()
-            # Blank out labels for the template
-            template["manual_sentiment_label"] = ""
-            template["manual_policy_stance_label"] = ""
-            template["manual_topic_label"] = ""
-            template["reviewer"] = ""
-            template["review_note"] = ""
-            ANNOTATION_PATH.parent.mkdir(parents=True, exist_ok=True)
-            template.to_excel(ANNOTATION_PATH, index=False)
+        # Always refresh the blank template so label columns stay empty.
+        template = filled[
+            [
+                "annotation_id", "report_id", "report_period", "section",
+                "sentence", "auto_sentiment_score", "auto_policy_stance_score",
+                "manual_sentiment_label", "manual_policy_stance_label",
+                "manual_topic_label", "reviewer", "review_note",
+            ]
+        ].copy()
+        # Blank out labels for the template
+        template["manual_sentiment_label"] = ""
+        template["manual_policy_stance_label"] = ""
+        template["manual_topic_label"] = ""
+        template["reviewer"] = ""
+        template["review_note"] = ""
+        ANNOTATION_PATH.parent.mkdir(parents=True, exist_ok=True)
+        template.to_excel(ANNOTATION_PATH, index=False)
         return {
             "path": str(FILLED_PATH),
             "rows": int(len(filled)),
