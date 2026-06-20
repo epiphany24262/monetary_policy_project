@@ -181,8 +181,12 @@ def build_notebook() -> None:
         nbf.v4.new_markdown_cell("## 8. Student-t EGARCH-X 稳健性"),
         nbf.v4.new_code_cell(
             "egarch_x = json.loads((ROOT / 'output/results/daily_egarch_x_results.json').read_text(encoding='utf-8'))\n"
-            "print(egarch_x['main_model'])\n"
-            "display(pd.DataFrame(egarch_x['sensitivity']))"
+            "print('formal D0 full joint MLE')\n"
+            "print({k: egarch_x['main_model'].get(k) for k in ['method','sample_scope','n_daily_observations','n_report_events','converged','runtime_seconds']})\n"
+            "print('parameters:', egarch_x['main_model'].get('parameters'))\n"
+            "print('fixed-nuisance diagnostics')\n"
+            "display(pd.DataFrame(egarch_x['sensitivity']))\n"
+            "print('comparison:', egarch_x.get('comparison'))"
         ),
         nbf.v4.new_markdown_cell("## 9. 市场功效分析"),
         nbf.v4.new_code_cell(

@@ -993,11 +993,11 @@ def _paper_numbers(results: dict) -> dict:
         "direction_f1": validation["policy_direction_macro_f1"],
         "topic_acc": validation["topic_accuracy"],
         "topic_f1": validation["topic_macro_f1"],
-        "egarch_status": egarch_x["main"].get("status"),
+        "egarch_status": egarch_x["main"].get("method"),
         "egarch_converged": egarch_x["main"].get("converged"),
-        "egarch_n": egarch_x["main"].get("nobs"),
-        "egarch_novelty": egarch_x["main"].get("exog_params", {}).get("exog_1"),
-        "egarch_report_day": egarch_x["main"].get("exog_params", {}).get("exog_0"),
+        "egarch_n": egarch_x["main"].get("n_daily_observations"),
+        "egarch_novelty": egarch_x["main"].get("parameters", {}).get("novelty"),
+        "egarch_report_day": egarch_x["main"].get("parameters", {}).get("report_day"),
         "egarch_perm_p": egarch_x.get("permutation_p_novelty"),
         "power_max_n": max_power.get("sample_size"),
         "power_max": max_power.get("power"),
@@ -1090,11 +1090,9 @@ def build_paper(results: dict) -> None:
     numbers = _paper_numbers(results)
     if COVER_PATH.exists():
         doc = Document(str(COVER_PATH))
-        doc.add_paragraph().add_run().add_break()
-        from docx.enum.text import WD_BREAK
+        from docx.enum.section import WD_SECTION_START
 
-        doc.paragraphs[-1].runs[-1].add_break(WD_BREAK.PAGE)
-        section = doc.sections[-1]
+        section = doc.add_section(WD_SECTION_START.NEW_PAGE)
     else:
         doc = Document()
         section = doc.sections[0]
@@ -1127,6 +1125,7 @@ def build_paper(results: dict) -> None:
         "央行货币政策执行报告是季度频率的政策沟通文本。它的市场影响不是单一词语的即时跳跃，而是报告相对历史文本是否释放了新的判断框架、政策优先级和风险提示。本文据此将主检验固定为政策指引文本创新度与股票发布后五日实际波动率，不继续搜索其他主窗口或主变量。",
         "本文的课程重点放在Python数据处理和可复现研究流程：先整理央行报告原文、章节和发布时间，再用词典、语境门控、字符TF-IDF和分组交叉验证检验文本测量，最后构造股票和债券事件窗口。所有中间表、回归表、图形和论文数字由同一套流水线生成，便于复算。",
         "文献上，姜富伟等[1]提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等[2]强调资产价格反应来自未预期信息；尚玉皇等[3]讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
+        "国际研究中，Gurkaynak等[5]区分货币政策行动和声明对资产价格的影响，Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
     ]:
         _add_body_paragraph(doc, text)
 
@@ -1192,7 +1191,7 @@ def build_paper(results: dict) -> None:
 
     _add_level1_heading(doc, "六、Student-t EGARCH-X稳健性与市场功效")
     for text in [
-        f"日度高级稳健性使用Student-t EGARCH-X。与普通EGARCH均值方程诊断不同，这里把报告日、政策指引创新度事件项和附近政策操作放入条件方差方程。主结果状态为{numbers['egarch_status']}，收敛标记为{numbers['egarch_converged']}，样本数为{numbers['egarch_n']}；创新度方差项系数为{_fmt(numbers['egarch_novelty'])}，报告日项系数为{_fmt(numbers['egarch_report_day'])}，置换检验p值为{_fmt(numbers['egarch_perm_p'])}。",
+        f"日度高级稳健性使用完整连续交易日序列上的Student-t EGARCH-X。正式D0规格联合估计均值、方差和事件系数；D+1、D0+D1以及置换检验使用固定干扰参数条件似然，只作为诊断。主结果方法为{numbers['egarch_status']}，收敛标记为{numbers['egarch_converged']}，样本数为{numbers['egarch_n']}；创新度方差项系数为{_fmt(numbers['egarch_novelty'])}，报告日项系数为{_fmt(numbers['egarch_report_day'])}，条件置换诊断p值为{_fmt(numbers['egarch_perm_p'])}。",
         f"市场功效分析采用保留经验设计矩阵的wild residual bootstrap。最大模拟样本量为{numbers['power_max_n']}时，检验功效约为{_fmt(numbers['power_max'])}，80%功效对应的最小可检测效应约为{_fmt(numbers['power_mde'])}。这说明课程样本的显著性判断受样本规模限制，不显著结果不能简单等同于经济效应不存在。",
         "EGARCH-X和功效分析都属于稳健性和诊断材料。本文不因为EGARCH-X方向或功效结果改变核心变量、事件窗口或分布设定，也不据此修改人工标签。",
     ]:

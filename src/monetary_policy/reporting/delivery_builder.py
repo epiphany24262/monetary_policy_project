@@ -55,6 +55,7 @@ def build_final_submission() -> dict:
         _copy_file(ROOT / file, FINAL_SUBMISSION_DIR / file)
     _copy_tree(ROOT / "configs", FINAL_SUBMISSION_DIR / "configs", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "src" / "monetary_policy", FINAL_SUBMISSION_DIR / "src" / "monetary_policy", ignore=COMMON_IGNORES)
+    _copy_tree(ROOT / "scripts", FINAL_SUBMISSION_DIR / "scripts", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "tests", FINAL_SUBMISSION_DIR / "tests", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "notebooks", FINAL_SUBMISSION_DIR / "notebooks", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "paper", FINAL_SUBMISSION_DIR / "paper", ignore=COMMON_IGNORES)

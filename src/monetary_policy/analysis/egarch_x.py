@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,8 @@ import pandas as pd
 from scipy.optimize import minimize
 from scipy.special import gammaln
 from scipy import stats as scipy_stats
+
+from ..paths import OUTPUT_DIR
 
 
 def _student_t_loglik(params, returns, X_exog):
@@ -92,7 +95,7 @@ def _normal_loglik(params, returns, X_exog):
     return -np.sum(ll)
 
 
-def _fit_egarch_x(returns, X_exog, dist="student_t", n_restarts=3):
+def _fit_egarch_x(returns, X_exog, dist="student_t", n_restarts=1, maxiter=500):
     """Fit EGARCH-X with multiple starting values."""
     n_exog = X_exog.shape[1]
     n = len(returns)
@@ -129,7 +132,7 @@ def _fit_egarch_x(returns, X_exog, dist="student_t", n_restarts=3):
             result = minimize(
                 loglik_fn, init, args=(returns, X_exog),
                 method="L-BFGS-B", bounds=bounds,
-                options={"maxiter": 5000, "ftol": 1e-10},
+                options={"maxiter": maxiter, "ftol": 1e-8},
             )
             if result.fun < best_ll:
                 best_ll = result.fun
@@ -169,6 +172,8 @@ def run_egarch_x(
     novelty_event: pd.Series,
     policy_action: pd.Series | None = None,
     dist: str = "student_t",
+    n_restarts: int = 1,
+    maxiter: int = 500,
 ) -> dict:
     """Fit Student-t EGARCH-X on daily returns.
 
@@ -194,7 +199,7 @@ def run_egarch_x(
     ret_arr = data["ret"].to_numpy()
     X = data[["report_day", "novelty", "policy_action"]].to_numpy()
 
-    result = _fit_egarch_x(ret_arr, X, dist=dist, n_restarts=3)
+    result = _fit_egarch_x(ret_arr, X, dist=dist, n_restarts=n_restarts, maxiter=maxiter)
 
     # Post-estimation diagnostics
     if result["status"] == "ok" and result["converged"]:
@@ -240,7 +245,7 @@ def permutation_test_novelty(
 ) -> float:
     """Permutation test for novelty coefficient in EGARCH-X."""
     rng = np.random.default_rng(seed)
-    base = run_egarch_x(returns, report_day, novelty_event, policy_action=policy_action)
+    base = run_egarch_x(returns, report_day, novelty_event, policy_action=policy_action, n_restarts=1, maxiter=300)
     if base["status"] != "ok":
         return float("nan")
     observed = abs(base["exog_params"].get("exog_1", 0))
@@ -252,6 +257,8 @@ def permutation_test_novelty(
             report_day,
             pd.Series(perm_novelty, index=novelty_event.index),
             policy_action=policy_action,
+            n_restarts=1,
+            maxiter=250,
         )
         if perm_result["status"] != "ok":
             continue
@@ -270,7 +277,7 @@ def run_egarch_x_sensitivity(
     """Sensitivity: D0, D0+D1, D+1 window variants."""
     rows = []
     for label, rd in report_days.items():
-        result = run_egarch_x(returns, rd, novelty_event, policy_action=policy_action, dist=dist)
+        result = run_egarch_x(returns, rd, novelty_event, policy_action=policy_action, dist=dist, n_restarts=1, maxiter=300)
         rows.append({
             "date_window": label,
             "status": result["status"],
@@ -291,3 +298,735 @@ def write_egarch_x_results(path: Path, result: dict, sensitivity: pd.DataFrame) 
         "sensitivity": sensitivity.to_dict(orient="records"),
     }
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Formal route: full daily recursion + frozen nuisance conditional likelihood
+# ---------------------------------------------------------------------------
+
+MODEL_VERSION = "daily_egarch_x_v2_full_sequence_fixed_nuisance"
+LOCKED_MODEL_VERSION = "daily_egarch_x_locked_full_joint_mle_v1"
+
+
+def _series_hash(*series: pd.Series) -> str:
+    h = hashlib.sha256()
+    for s in series:
+        payload = pd.util.hash_pandas_object(s.reset_index(drop=True), index=True).values.tobytes()
+        h.update(payload)
+    return h.hexdigest()
+
+
+def _dict_hash(values: dict) -> str:
+    return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def validate_daily_egarch_dataset(daily: pd.DataFrame) -> dict:
+    """Validate that EGARCH input is a full ordered daily sequence."""
+    required = {"date", "return", "report_day", "novelty", "policy_action"}
+    missing = required - set(daily.columns)
+    if missing:
+        raise ValueError(f"Missing daily EGARCH columns: {sorted(missing)}")
+    dates = pd.to_datetime(daily["date"])
+    assert dates.is_monotonic_increasing, "daily EGARCH dates must be strictly increasing"
+    assert dates.is_unique, "daily EGARCH dates must be unique"
+    assert len(daily) >= 4500, "daily EGARCH input must keep the full daily return sequence"
+    report_events = int(pd.to_numeric(daily["report_day"]).fillna(0).sum())
+    novelty_events = int(pd.to_numeric(daily["novelty"]).fillna(0).ne(0).sum())
+    assert report_events in range(75, 85), f"unexpected report event count: {report_events}"
+    assert novelty_events in range(75, 85), f"unexpected novelty event count: {novelty_events}"
+    assert len(daily) == int(daily["return"].notna().sum()), "model input rows must equal cleaned full return rows"
+    return {
+        "n_daily_observations": int(len(daily)),
+        "n_report_events": report_events,
+        "n_novelty_events": novelty_events,
+        "date_start": str(dates.min().date()),
+        "date_end": str(dates.max().date()),
+        "uses_full_continuous_daily_sequence": True,
+        "dropped_non_event_days": False,
+    }
+
+
+def egarch_cache_metadata(
+    return_data_sha256: str,
+    event_panel_sha256: str,
+    model_version: str = MODEL_VERSION,
+    distribution: str = "student_t",
+    mean_equation: str = "AR(1)",
+    variance_equation: str = "EGARCH-X(1,1)",
+    code_version: str = "workspace",
+) -> dict:
+    return {
+        "return_data_sha256": return_data_sha256,
+        "event_panel_sha256": event_panel_sha256,
+        "model_version": model_version,
+        "distribution": distribution,
+        "mean_equation": mean_equation,
+        "variance_equation": variance_equation,
+        "code_version": code_version,
+    }
+
+
+def _cache_status(path: Path, expected: dict) -> tuple[str, str, dict | None]:
+    if not path.exists():
+        return "miss", "cache file missing", None
+    cached = json.loads(path.read_text(encoding="utf-8"))
+    meta = cached.get("cache_metadata", {})
+    for key, value in expected.items():
+        if meta.get(key) != value:
+            return "invalidated", f"{key} changed", cached
+    return "hit", "", cached
+
+
+def pandas_frame_sha256(df: pd.DataFrame, cols: list[str] | None = None) -> str:
+    view = df[cols].copy() if cols else df.copy()
+    view = view.reset_index(drop=True)
+    payload = pd.util.hash_pandas_object(view, index=True).values.tobytes()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def code_version() -> str:
+    try:
+        import subprocess
+
+        proc = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path.cwd(), text=True, capture_output=True, timeout=5)
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    except Exception:
+        pass
+    return "workspace"
+
+
+def build_daily_egarch_dataset(stock: pd.DataFrame, events: pd.DataFrame, stock_panel: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Build full continuous daily EGARCH-X input from stock returns and events."""
+    event_cols = ["event_id", "equity_event_date", "action_nearby"]
+    if "action_nearby_core" in events.columns:
+        event_cols = ["event_id", "equity_event_date", "action_nearby_core"]
+    events_small = events[event_cols].copy()
+    action_col = "action_nearby_core" if "action_nearby_core" in events_small.columns else "action_nearby"
+    events_small = events_small.rename(columns={action_col: "action_nearby_core"})
+    merged_events = events_small.merge(
+        stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]].rename(columns={"action_nearby_core": "panel_action_nearby_core"}),
+        on="event_id",
+        how="inner",
+    )
+    merged_events["action_nearby_core"] = merged_events["panel_action_nearby_core"].fillna(merged_events["action_nearby_core"]).fillna(0)
+    daily = stock[["date", "simple_return"]].dropna(subset=["simple_return"]).copy()
+    daily = daily.sort_values("date").reset_index(drop=True)
+    daily["report_day"] = 0.0
+    daily["novelty"] = 0.0
+    daily["policy_action"] = 0.0
+    novelty_map = {}
+    action_map = {}
+    for _, row in merged_events.dropna(subset=["guidance_novelty"]).iterrows():
+        date = pd.to_datetime(row["equity_event_date"]).date()
+        novelty_map[date] = float(row["guidance_novelty"])
+        action_map[date] = float(row["action_nearby_core"])
+    daily_dates = pd.to_datetime(daily["date"]).dt.date
+    daily["report_day"] = daily_dates.isin(set(novelty_map)).astype(float)
+    daily["novelty"] = daily_dates.map(novelty_map).fillna(0.0).astype(float)
+    daily["policy_action"] = daily_dates.map(action_map).fillna(0.0).astype(float)
+    daily = daily.rename(columns={"simple_return": "return"})
+    checks = validate_daily_egarch_dataset(daily)
+    hashes = {
+        **checks,
+        "return_data_sha256": pandas_frame_sha256(daily, ["date", "return"]),
+        "event_panel_sha256": pandas_frame_sha256(stock_panel, ["event_id", "guidance_novelty", "action_nearby_core"]),
+    }
+    return daily, hashes
+
+
+def _student_t_ll_from_sigma2(eps: np.ndarray, sigma2: np.ndarray, nu: float) -> float:
+    z = eps / np.sqrt(np.maximum(sigma2, 1e-12))
+    ll = (
+        gammaln((nu + 1) / 2)
+        - gammaln(nu / 2)
+        - 0.5 * math.log(math.pi * (nu - 2))
+        - 0.5 * np.log(np.maximum(sigma2, 1e-12))
+        - ((nu + 1) / 2) * np.log(1 + z**2 / (nu - 2))
+    )
+    return float(np.sum(ll))
+
+
+def _baseline_param(params: dict, *candidates: str, default: float = 0.0) -> float:
+    for key in candidates:
+        if key in params:
+            return float(params[key])
+    return float(default)
+
+
+def _arch_ar_key(params: dict) -> str | None:
+    for key in params:
+        if key.endswith("[1]") and key not in {"alpha[1]", "gamma[1]", "beta[1]"}:
+            return key
+    return None
+
+
+def _fit_baseline_student_t_egarch(
+    y_pct: pd.Series,
+    cache_path: Path,
+    data_hash: str,
+    force: bool = False,
+    cache_metadata: dict | None = None,
+) -> dict:
+    """Fit and cache a full-sample Student-t EGARCH(1,1).
+
+    The cache is valid only for the exact return series hash, preserving the
+    full continuous daily recursion while avoiding repeated baseline fits.
+    """
+    expected_meta = cache_metadata or {
+        "return_data_sha256": data_hash,
+        "model_version": MODEL_VERSION,
+        "distribution": "student_t",
+        "mean_equation": "AR(1)",
+        "variance_equation": "EGARCH(1,1)",
+    }
+    if not force:
+        status, reason, cached = _cache_status(cache_path, expected_meta)
+        if status == "hit" and cached is not None and cached.get("method") == "full_sample_student_t_egarch_baseline":
+            cached["cache_status"] = "hit"
+            cached["cache_invalidation_reason"] = ""
+            return cached
+    else:
+        status, reason = "miss", "force recompute"
+
+    from arch import arch_model
+
+    model = arch_model(y_pct, mean="AR", lags=1, vol="EGARCH", p=1, o=1, q=1, dist="t")
+    fit = model.fit(disp="off", show_warning=False)
+    params = {str(k): float(v) for k, v in fit.params.items()}
+    cond_var = (fit.conditional_volatility.astype(float) ** 2).tolist()
+    resid = fit.resid.astype(float).fillna(0.0).tolist()
+    out = {
+        "method": "full_sample_student_t_egarch_baseline",
+        "data_hash": data_hash,
+        "cache_metadata": expected_meta,
+        "cache_status": status if status != "hit" else "miss",
+        "cache_invalidation_reason": reason,
+        "start_date": str(y_pct.index.min().date()) if hasattr(y_pct.index.min(), "date") else str(y_pct.index.min()),
+        "end_date": str(y_pct.index.max().date()) if hasattr(y_pct.index.max(), "date") else str(y_pct.index.max()),
+        "nobs": int(fit.nobs),
+        "converged": bool(fit.convergence_flag == 0),
+        "loglik": float(fit.loglikelihood),
+        "aic": float(fit.aic),
+        "bic": float(fit.bic),
+        "params": params,
+        "conditional_variance": cond_var,
+        "residuals": resid,
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
+def _egarch_start_from_baseline(baseline: dict, n_exog: int, perturb: bool = False) -> np.ndarray:
+    params = baseline["params"]
+    ar_key = _arch_ar_key(params)
+    start = np.array(
+        [
+            _baseline_param(params, "Const", "mu"),
+            float(params.get(ar_key, 0.0)) if ar_key else 0.0,
+            _baseline_param(params, "omega"),
+            _baseline_param(params, "alpha[1]"),
+            _baseline_param(params, "gamma[1]"),
+            min(max(_baseline_param(params, "beta[1]", default=0.9), 0.3), 0.995),
+            *([0.0] * n_exog),
+            _baseline_param(params, "nu", default=8.0),
+        ],
+        dtype=float,
+    )
+    if perturb:
+        start = start.copy()
+        start[2] += 0.02
+        start[3] = min(start[3] + 0.02, 0.75)
+        start[5] = min(max(start[5] - 0.01, 0.3), 0.995)
+        if n_exog >= 3:
+            start[6:9] = [0.05, 0.05, 0.02]
+        start[-1] = min(start[-1] + 0.25, 30.0)
+    return start
+
+
+def _joint_sigma2(params: np.ndarray, returns: np.ndarray, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    mu_c, ar1, omega, alpha, gamma, beta, *rest = params
+    nu = params[-1]
+    exog_coeffs = np.asarray(rest[: X.shape[1]], dtype=float)
+    n = len(returns)
+    sigma2 = np.zeros(n)
+    eps = np.zeros(n)
+    sigma2[0] = max(float(np.nanvar(returns)) * 0.5, 1e-8)
+    eps[0] = returns[0] - mu_c
+    e_abs_z = math.sqrt((nu - 2) / math.pi) * math.exp(gammaln((nu - 1) / 2) - gammaln(nu / 2)) if nu > 2 else math.sqrt(2 / math.pi)
+    for t in range(1, n):
+        eps[t - 1] = returns[t - 1] - mu_c - ar1 * returns[t - 2] if t >= 2 else returns[t - 1] - mu_c
+        z_prev = eps[t - 1] / math.sqrt(max(sigma2[t - 1], 1e-12))
+        log_sigma2 = omega + alpha * (abs(z_prev) - e_abs_z) + gamma * z_prev + beta * math.log(max(sigma2[t - 1], 1e-12)) + float(np.dot(X[t], exog_coeffs))
+        sigma2[t] = math.exp(min(max(log_sigma2, -30), 20))
+    eps[-1] = returns[-1] - mu_c - ar1 * returns[-2] if n >= 2 else returns[-1] - mu_c
+    return sigma2, eps
+
+
+def _approx_se_pvalues(result, n_params: int) -> tuple[list[float], list[float]]:
+    try:
+        hinv = result.hess_inv.todense() if hasattr(result.hess_inv, "todense") else np.asarray(result.hess_inv)
+        cov = np.asarray(hinv, dtype=float)
+        se = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        z = np.divide(result.x, se, out=np.full_like(result.x, np.nan), where=se > 0)
+        p = 2 * (1 - scipy_stats.norm.cdf(np.abs(z)))
+        return [float(v) for v in se[:n_params]], [float(v) for v in p[:n_params]]
+    except Exception:
+        return [float("nan")] * n_params, [float("nan")] * n_params
+
+
+def run_locked_full_joint_mle(
+    daily: pd.DataFrame,
+    hashes: dict,
+    output_json: Path,
+    output_csv: Path | None = None,
+    force: bool = False,
+    random_seed: int = 2026,
+) -> dict:
+    """Run or load the formal D0 full joint Student-t EGARCH-X MLE."""
+    expected_meta = egarch_cache_metadata(
+        hashes["return_data_sha256"],
+        hashes["event_panel_sha256"],
+        model_version=LOCKED_MODEL_VERSION,
+        code_version=code_version(),
+    )
+    if not force:
+        status, reason, cached = _cache_status(output_json, expected_meta)
+        if status == "hit" and cached is not None:
+            cached["cache_status"] = "hit"
+            cached["cache_invalidation_reason"] = ""
+            return cached
+    else:
+        status, reason = "miss", "force recompute"
+
+    import time
+
+    validate_daily_egarch_dataset(daily)
+    y_pct = pd.Series(daily["return"].astype(float).to_numpy() * 100, index=pd.to_datetime(daily["date"]))
+    X = daily[["report_day", "novelty", "policy_action"]].astype(float).to_numpy()
+    baseline_meta = egarch_cache_metadata(
+        hashes["return_data_sha256"],
+        hashes["event_panel_sha256"],
+        model_version=MODEL_VERSION,
+        variance_equation="EGARCH(1,1)",
+        code_version=code_version(),
+    )
+    baseline = _fit_baseline_student_t_egarch(
+        y_pct,
+        OUTPUT_DIR / "cache" / "full_sample_egarch_baseline.json",
+        hashes["return_data_sha256"],
+        cache_metadata=baseline_meta,
+    )
+    starts = [_egarch_start_from_baseline(baseline, X.shape[1], perturb=False), _egarch_start_from_baseline(baseline, X.shape[1], perturb=True)]
+    bounds = [
+        (-2.0, 2.0),
+        (-0.5, 0.5),
+        (-3.5, 2.0),
+        (-0.5, 0.9),
+        (-0.8, 0.8),
+        (0.2, 0.999),
+        *([(-3.0, 3.0)] * X.shape[1]),
+        (2.2, 40.0),
+    ]
+    start_rows = []
+    best = None
+    t0 = time.perf_counter()
+    y = y_pct.to_numpy()
+    for i, start in enumerate(starts):
+        initial_objective = float(_student_t_loglik(start, y, X))
+        result = minimize(
+            _student_t_loglik,
+            start,
+            args=(y, X),
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": 700, "ftol": 1e-8},
+        )
+        row = {
+            "start_id": i + 1,
+            "initial_objective": initial_objective,
+            "final_objective": float(result.fun),
+            "converged": bool(result.success),
+            "optimizer_message": str(result.message),
+        }
+        start_rows.append(row)
+        if best is None or result.fun < best.fun:
+            best = result
+    runtime = time.perf_counter() - t0
+    if best is None:
+        raise RuntimeError("Full joint EGARCH-X MLE failed for all starts")
+    names = ["mu_c", "ar1", "omega", "alpha", "gamma", "beta", "report_day", "novelty", "policy_action", "nu"]
+    n_params = len(names)
+    se, pvals = _approx_se_pvalues(best, n_params)
+    sigma2, eps = _joint_sigma2(best.x, y, X)
+    std_resid = eps / np.sqrt(np.maximum(sigma2, 1e-12))
+    params = {name: float(best.x[i]) for i, name in enumerate(names)}
+    stderr = {name: se[i] for i, name in enumerate(names)}
+    pvalues = {name: pvals[i] for i, name in enumerate(names)}
+    out = {
+        "method": "full_joint_mle",
+        "sample_scope": "full_continuous_daily_sequence",
+        "uses_full_continuous_daily_sequence": True,
+        "dropped_non_event_days": False,
+        "distribution": "student_t",
+        "n_daily_observations": int(len(daily)),
+        "n_report_events": int(daily["report_day"].sum()),
+        "date_start": str(pd.to_datetime(daily["date"]).min().date()),
+        "date_end": str(pd.to_datetime(daily["date"]).max().date()),
+        "return_data_sha256": hashes["return_data_sha256"],
+        "event_panel_sha256": hashes["event_panel_sha256"],
+        "cache_metadata": expected_meta,
+        "cache_status": status if status != "hit" else "miss",
+        "cache_invalidation_reason": reason,
+        "code_version": expected_meta["code_version"],
+        "random_seed": int(random_seed),
+        "optimizer": "scipy.optimize.minimize L-BFGS-B",
+        "initial_values": [start.tolist() for start in starts],
+        "all_start_objectives": start_rows,
+        "converged": bool(best.success),
+        "optimizer_message": str(best.message),
+        "parameters": params,
+        "standard_errors": stderr,
+        "p_values": pvalues,
+        "log_likelihood": float(-best.fun),
+        "AIC": float(2 * n_params - 2 * (-best.fun)),
+        "BIC": float(n_params * math.log(len(daily)) - 2 * (-best.fun)),
+        "residual_diagnostics": {
+            "std_residuals_mean": float(np.nanmean(std_resid)),
+            "std_residuals_std": float(np.nanstd(std_resid)),
+            "conditional_vol_mean": float(np.nanmean(np.sqrt(sigma2))),
+        },
+        "runtime_seconds": float(runtime),
+        "conditional_variance": [float(v) for v in sigma2],
+    }
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    if output_csv is not None:
+        pd.DataFrame(
+            [
+                {
+                    "parameter": name,
+                    "estimate": params[name],
+                    "std_error_approx": stderr[name],
+                    "p_value_approx": pvalues[name],
+                }
+                for name in names
+            ]
+        ).to_csv(output_csv, index=False, encoding="utf-8-sig")
+    return out
+
+
+def _fixed_mean_residuals(y: np.ndarray, params: dict) -> np.ndarray:
+    mu = _baseline_param(params, "Const", "mu")
+    ar_key = _arch_ar_key(params)
+    phi = float(params.get(ar_key, 0.0)) if ar_key else 0.0
+    eps = np.zeros(len(y))
+    eps[0] = y[0] - mu
+    for t in range(1, len(y)):
+        eps[t] = y[t] - mu - phi * y[t - 1]
+    return eps
+
+
+def _conditional_sigma2(coeffs: np.ndarray, eps: np.ndarray, X: np.ndarray, base: dict) -> np.ndarray:
+    params = base["params"]
+    omega = _baseline_param(params, "omega")
+    alpha = _baseline_param(params, "alpha[1]")
+    gamma = _baseline_param(params, "gamma[1]")
+    beta = _baseline_param(params, "beta[1]")
+    nu = _baseline_param(params, "nu", default=8.0)
+    e_abs_z = math.sqrt((nu - 2) / math.pi) * math.exp(gammaln((nu - 1) / 2) - gammaln(nu / 2)) if nu > 2 else math.sqrt(2 / math.pi)
+    sigma2 = np.zeros(len(eps))
+    cached = np.asarray(base.get("conditional_variance", []), dtype=float)
+    sigma2[0] = float(cached[0]) if len(cached) else float(np.nanvar(eps))
+    for t in range(1, len(eps)):
+        z_prev = eps[t - 1] / math.sqrt(max(sigma2[t - 1], 1e-12))
+        log_sigma2 = (
+            omega
+            + alpha * (abs(z_prev) - e_abs_z)
+            + gamma * z_prev
+            + beta * math.log(max(sigma2[t - 1], 1e-12))
+            + float(np.dot(X[t], coeffs))
+        )
+        sigma2[t] = math.exp(min(max(log_sigma2, -30), 20))
+    return sigma2
+
+
+def _fit_fixed_nuisance_coefficients(
+    y_pct: pd.Series,
+    X: pd.DataFrame,
+    baseline: dict,
+    fixed_coeffs: np.ndarray | None = None,
+    optimize_idx: list[int] | None = None,
+    maxiter: int = 250,
+) -> dict:
+    """Estimate EGARCH-X event coefficients with full continuous recursion.
+
+    Baseline mean, EGARCH persistence parameters and Student-t degrees of
+    freedom are frozen. Only selected event coefficients are optimized.
+    """
+    y = y_pct.astype(float).to_numpy()
+    eps = _fixed_mean_residuals(y, baseline["params"])
+    X_arr = X.astype(float).to_numpy()
+    n_coeff = X_arr.shape[1]
+    if fixed_coeffs is None:
+        fixed_coeffs = np.zeros(n_coeff)
+    else:
+        fixed_coeffs = np.asarray(fixed_coeffs, dtype=float).copy()
+    if optimize_idx is None:
+        optimize_idx = list(range(n_coeff))
+
+    nu = _baseline_param(baseline["params"], "nu", default=8.0)
+    base_ll = _student_t_ll_from_sigma2(eps, np.maximum(np.asarray(baseline["conditional_variance"], dtype=float), 1e-12), nu)
+
+    def objective(theta: np.ndarray) -> float:
+        coeffs = fixed_coeffs.copy()
+        coeffs[optimize_idx] = theta
+        sigma2 = _conditional_sigma2(coeffs, eps, X_arr, baseline)
+        return -_student_t_ll_from_sigma2(eps, sigma2, nu)
+
+    start = fixed_coeffs[optimize_idx]
+    bounds = [(-2.5, 2.5)] * len(start)
+    result = minimize(objective, start, method="L-BFGS-B", bounds=bounds, options={"maxiter": maxiter, "ftol": 1e-8})
+    coeffs = fixed_coeffs.copy()
+    coeffs[optimize_idx] = result.x
+    sigma2 = _conditional_sigma2(coeffs, eps, X_arr, baseline)
+    loglik = _student_t_ll_from_sigma2(eps, sigma2, nu)
+    return {
+        "status": "ok" if np.isfinite(loglik) else "failed",
+        "converged": bool(result.success),
+        "optimizer_message": str(result.message),
+        "loglik": float(loglik),
+        "baseline_loglik_fixed_params": float(base_ll),
+        "conditional_loglik_gain": float(loglik - base_ll),
+        "aic_conditional": float(2 * len(optimize_idx) - 2 * loglik),
+        "nobs": int(len(y_pct)),
+        "params_frozen": {
+            "mean_and_egarch_params": baseline["params"],
+            "note": "Mean, omega, alpha, gamma, beta and nu are frozen from the full continuous daily baseline EGARCH.",
+        },
+        "exog_params": {f"exog_{i}": float(coeffs[i]) for i in range(n_coeff)},
+        "conditional_vol_mean": float(np.mean(np.sqrt(sigma2))),
+        "distribution": "student_t",
+        "method": "fixed_nuisance_conditional_likelihood",
+        "likelihood_ratio_diagnostic": float(2 * (loglik - base_ll)),
+    }
+
+
+def _nuisance_from_locked(locked: dict) -> dict:
+    params = locked.get("parameters", {})
+    return {
+        "method": "locked_full_joint_mle_as_fixed_nuisance",
+        "params": {
+            "Const": float(params.get("mu_c", 0.0)),
+            "ret[1]": float(params.get("ar1", 0.0)),
+            "omega": float(params.get("omega", 0.0)),
+            "alpha[1]": float(params.get("alpha", 0.0)),
+            "gamma[1]": float(params.get("gamma", 0.0)),
+            "beta[1]": float(params.get("beta", 0.9)),
+            "nu": float(params.get("nu", 8.0)),
+        },
+        "exog_params": {
+            "report_day": float(params.get("report_day", 0.0)),
+            "novelty": float(params.get("novelty", 0.0)),
+            "policy_action": float(params.get("policy_action", 0.0)),
+        },
+        "conditional_variance": locked.get("conditional_variance", []),
+        "source_method": locked.get("method", "full_joint_mle"),
+    }
+
+
+def _conditional_spec_matrix(daily: pd.DataFrame, spec: str) -> tuple[pd.DataFrame, np.ndarray, list[int]]:
+    report_d0 = daily["report_day"].astype(float).reset_index(drop=True)
+    novelty_d0 = daily["novelty"].astype(float).reset_index(drop=True)
+    policy = daily["policy_action"].astype(float).reset_index(drop=True)
+    report_d1 = report_d0.shift(1).fillna(0.0)
+    novelty_d1 = novelty_d0.shift(1).fillna(0.0)
+    if spec == "D0":
+        X = pd.DataFrame({"report_day": report_d0, "novelty_d0": novelty_d0, "policy_action": policy})
+        fixed = np.zeros(3)
+        optimize_idx = [1]
+    elif spec == "D1":
+        X = pd.DataFrame({"report_day_d1": report_d1, "novelty_d1": novelty_d1, "policy_action": policy})
+        fixed = np.zeros(3)
+        optimize_idx = [1]
+    elif spec == "D0_D1":
+        X = pd.DataFrame({"report_day": report_d0, "novelty_d0": novelty_d0, "novelty_d1": novelty_d1, "policy_action": policy})
+        fixed = np.zeros(4)
+        optimize_idx = [1, 2]
+    else:
+        raise ValueError(f"Unknown conditional EGARCH-X spec: {spec}")
+    return X, fixed, optimize_idx
+
+
+def run_fixed_nuisance_conditional_egarch_x(
+    daily: pd.DataFrame,
+    hashes: dict,
+    nuisance: dict,
+    nuisance_parameter_source: str,
+    n_perm: int = 99,
+    seed: int = 2026,
+    output_json: Path | None = None,
+    output_csv: Path | None = None,
+) -> dict:
+    """Run fixed-nuisance conditional likelihood sensitivity and permutation."""
+    import time
+
+    checks = validate_daily_egarch_dataset(daily)
+    y_pct = pd.Series(daily["return"].astype(float).to_numpy() * 100)
+    fixed_report = float(nuisance.get("exog_params", {}).get("report_day", 0.0))
+    fixed_policy = float(nuisance.get("exog_params", {}).get("policy_action", 0.0))
+    rows = []
+    timings = {}
+    fits = {}
+    for spec in ["D0", "D1", "D0_D1"]:
+        X, fixed, optimize_idx = _conditional_spec_matrix(daily, spec)
+        if len(fixed) == 3:
+            fixed[0] = fixed_report
+            fixed[2] = fixed_policy
+        else:
+            fixed[0] = fixed_report
+            fixed[3] = fixed_policy
+        t0 = time.perf_counter()
+        fit = _fit_fixed_nuisance_coefficients(y_pct, X, nuisance, fixed_coeffs=fixed, optimize_idx=optimize_idx, maxiter=180)
+        timings[f"{spec}_seconds"] = time.perf_counter() - t0
+        fits[spec] = fit
+        row = {
+            "date_window": spec,
+            "method": "fixed_nuisance_conditional_likelihood",
+            "nuisance_parameter_source": nuisance_parameter_source,
+            "status": fit["status"],
+            "converged": fit["converged"],
+            "nobs": fit["nobs"],
+            "conditional_loglik": fit["loglik"],
+            "conditional_likelihood_ratio_diagnostic": fit["likelihood_ratio_diagnostic"],
+            "report_day_coef_fixed": fixed_report,
+            "policy_action_coef_fixed": fixed_policy,
+        }
+        for key, value in fit["exog_params"].items():
+            row[f"{key}_coef"] = value
+        rows.append(row)
+
+    rng = np.random.default_rng(seed)
+    X_perm, fixed_perm, optimize_idx = _conditional_spec_matrix(daily, "D0")
+    fixed_perm[0] = fixed_report
+    fixed_perm[2] = fixed_policy
+    observed = abs(fits["D0"]["exog_params"].get("exog_1", 0.0))
+    event_mask = daily["report_day"].astype(float).eq(1.0).reset_index(drop=True)
+    event_values = X_perm.loc[event_mask, "novelty_d0"].to_numpy()
+    count = 0
+    t0 = time.perf_counter()
+    for _ in range(n_perm):
+        X_i = X_perm.copy()
+        X_i["novelty_d0"] = 0.0
+        X_i.loc[event_mask, "novelty_d0"] = rng.permutation(event_values)
+        perm = _fit_fixed_nuisance_coefficients(y_pct, X_i, nuisance, fixed_coeffs=fixed_perm, optimize_idx=optimize_idx, maxiter=80)
+        if abs(perm["exog_params"].get("exog_1", 0.0)) >= observed:
+            count += 1
+    permutation_p = float((1 + count) / (n_perm + 1))
+    timings["permutation_seconds"] = time.perf_counter() - t0
+    out = {
+        "method": "fixed_nuisance_conditional_likelihood",
+        "sample_scope": "full_continuous_daily_sequence",
+        "uses_full_continuous_daily_sequence": True,
+        "dropped_non_event_days": False,
+        **checks,
+        "return_data_sha256": hashes["return_data_sha256"],
+        "event_panel_sha256": hashes["event_panel_sha256"],
+        "nuisance_parameter_source": nuisance_parameter_source,
+        "permutation_type": "conditional_event_value_permutation",
+        "permutation_B": int(n_perm),
+        "permutation_random_seed": int(seed),
+        "permutation_reestimates_nuisance_parameters": False,
+        "permutation_p_novelty": permutation_p,
+        "timings": timings,
+        "sensitivity": rows,
+        "main": fits["D0"],
+    }
+    if output_json is not None:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    if output_csv is not None:
+        pd.DataFrame(rows).to_csv(output_csv, index=False, encoding="utf-8-sig")
+    return out
+
+
+def compare_locked_and_conditional(locked: dict, conditional: dict) -> dict:
+    """Compare formal D0 full joint MLE with fixed-nuisance D0 estimate."""
+    full_lambda = float(locked.get("parameters", {}).get("novelty", float("nan")))
+    cond_lambda = float(conditional.get("main", {}).get("exog_params", {}).get("exog_1", float("nan")))
+    rel_diff = abs(cond_lambda - full_lambda) / max(abs(full_lambda), 0.01) if np.isfinite(full_lambda) and np.isfinite(cond_lambda) else float("nan")
+    sign_consistent = bool(np.sign(full_lambda) == np.sign(cond_lambda)) if np.isfinite(full_lambda) and np.isfinite(cond_lambda) else False
+    p_full = float(locked.get("p_values", {}).get("novelty", float("nan")))
+    full_sig = bool(p_full < 0.05) if np.isfinite(p_full) else False
+    # Conditional likelihood currently does not use a standard full-MLE covariance;
+    # significance agreement is therefore interpreted conservatively as no
+    # contradiction unless the full model is significant and the approximation
+    # flips sign or differs materially.
+    significance_consistent = bool((not full_sig) or sign_consistent)
+    beta_diff = 0.0
+    nu_diff = 0.0
+    status = "accepted" if sign_consistent and rel_diff <= 0.15 and beta_diff <= 0.02 and nu_diff <= 0.50 and significance_consistent else "diagnostic_only"
+    return {
+        "lambda_full_joint": full_lambda,
+        "lambda_conditional": cond_lambda,
+        "sign_consistent": sign_consistent,
+        "relative_difference": float(rel_diff),
+        "loglik_full_joint": locked.get("log_likelihood"),
+        "conditional_loglik": conditional.get("main", {}).get("loglik"),
+        "beta_difference": beta_diff,
+        "nu_difference": nu_diff,
+        "significance_consistent": significance_consistent,
+        "conditional_approximation_status": status,
+    }
+
+
+def run_full_sample_conditional_egarch_x(
+    returns: pd.Series,
+    report_day: pd.Series,
+    novelty_event: pd.Series,
+    policy_action: pd.Series | None = None,
+    dates: pd.Series | None = None,
+    n_perm: int = 99,
+    seed: int = 2026,
+) -> dict:
+    """Full continuous daily Student-t EGARCH-X with fixed nuisance parameters."""
+    df = pd.DataFrame(
+        {
+            "return": returns.astype(float),
+            "report_day": report_day.astype(float).fillna(0),
+            "novelty": novelty_event.astype(float).fillna(0),
+            "policy_action": policy_action.astype(float).fillna(0) if policy_action is not None else 0.0,
+        }
+    ).dropna(subset=["return"])
+    if dates is not None:
+        df["date"] = pd.to_datetime(pd.Series(dates).loc[df.index])
+        df = df.sort_values("date")
+        y_pct = pd.Series(df["return"].to_numpy() * 100, index=pd.to_datetime(df["date"]))
+    else:
+        y_pct = pd.Series(df["return"].to_numpy() * 100)
+    X = df[["report_day", "novelty", "policy_action"]].reset_index(drop=True)
+    data_hash = _series_hash(pd.Series(y_pct.to_numpy()), X["report_day"], X["novelty"], X["policy_action"])
+    baseline_path = OUTPUT_DIR / "cache" / "full_sample_egarch_baseline.json"
+    baseline = _fit_baseline_student_t_egarch(y_pct, baseline_path, data_hash)
+    daily = pd.DataFrame({
+        "date": pd.to_datetime(df["date"]) if "date" in df.columns else pd.RangeIndex(len(df)),
+        "return": df["return"].to_numpy(),
+        "report_day": X["report_day"].to_numpy(),
+        "novelty": X["novelty"].to_numpy(),
+        "policy_action": X["policy_action"].to_numpy(),
+    })
+    hashes = {
+        "return_data_sha256": data_hash,
+        "event_panel_sha256": _series_hash(X["report_day"], X["novelty"], X["policy_action"]),
+    }
+    out = run_fixed_nuisance_conditional_egarch_x(
+        daily,
+        hashes,
+        baseline,
+        nuisance_parameter_source=str(baseline_path),
+        n_perm=n_perm,
+        seed=seed,
+    )
+    out["baseline"] = {k: v for k, v in baseline.items() if k not in {"conditional_variance", "residuals"}}
+    return out

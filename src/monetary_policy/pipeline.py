@@ -14,7 +14,19 @@ from .analysis.robustness import similarity_robustness
 from .analysis.stock_returns import run_stock_return_models
 from .analysis.stock_volatility import run_stock_volatility_models, write_egarch
 from .analysis.yield_curve import run_yield_curve_models
-from .analysis.egarch_x import run_egarch_x, run_egarch_x_sensitivity, permutation_test_novelty, write_egarch_x_results
+from .analysis.egarch_x import (
+    run_egarch_x,
+    run_egarch_x_sensitivity,
+    permutation_test_novelty,
+    write_egarch_x_results,
+    build_daily_egarch_dataset,
+    run_locked_full_joint_mle,
+    run_fixed_nuisance_conditional_egarch_x,
+    _nuisance_from_locked,
+    compare_locked_and_conditional,
+    egarch_cache_metadata,
+    code_version,
+)
 from .analysis.power_analysis import run_power_analysis, write_power_outputs
 from .analysis.cross_fitted_tone import run_cross_fitted_tone, write_cross_fitted_outputs
 from .data.bond_yields import load_bond_yields
@@ -266,7 +278,7 @@ def build_text_features() -> pd.DataFrame:
     return features
 
 
-def build_results() -> dict:
+def build_results(recompute_heavy: bool = False) -> dict:
     ensure_dirs()
     verify_final_analysis_plan()
     build_research_documents()
@@ -298,7 +310,7 @@ def build_results() -> dict:
     robust_table = similarity_robustness(stock_panel)
 
     # ── Student-t EGARCH-X on daily returns ──
-    egarch_x_results = _run_daily_egarch_x(stock_panel)
+    egarch_x_results = _run_daily_egarch_x(stock_panel, recompute_heavy=recompute_heavy)
 
     # ── Power analysis ──
     power_results = run_power_analysis(stock_panel)
@@ -546,41 +558,71 @@ def _run_daily_egarch_x_fast(stock_panel: pd.DataFrame) -> dict:
     return {"main": results.get("student_t", {}), "normal": results.get("normal", {}), "permutation_p_novelty": float(perm_p)}
 
 
-def _run_daily_egarch_x(stock_panel: pd.DataFrame) -> dict:
-    """Student-t EGARCH-X on CSI 300 daily returns."""
+def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False) -> dict:
+    """Student-t EGARCH-X on the full continuous CSI 300 daily return series."""
     stock = load_stock_prices()
     events = load_event_calendar()
-    events = events.merge(stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]], on="event_id", how="left")
+    daily, hashes = build_daily_egarch_dataset(stock, events, stock_panel)
+    locked_path = RESULTS_DIR / "daily_egarch_x_locked.json"
+    locked_csv = RESULTS_DIR / "daily_egarch_x_locked.csv"
+    expected = egarch_cache_metadata(
+        hashes["return_data_sha256"],
+        hashes["event_panel_sha256"],
+        model_version="daily_egarch_x_locked_full_joint_mle_v1",
+        code_version=code_version(),
+    )
+    if recompute_heavy:
+        locked = run_locked_full_joint_mle(daily, hashes, locked_path, locked_csv, force=True, random_seed=2026)
+    else:
+        if not locked_path.exists():
+            raise RuntimeError(
+                "Missing output/results/daily_egarch_x_locked.json. Run scripts/run_daily_egarch_x_locked.py before the default pipeline."
+            )
+        locked = json.loads(locked_path.read_text(encoding="utf-8"))
+        meta = locked.get("cache_metadata", {})
+        mismatches = [k for k, v in expected.items() if meta.get(k) != v]
+        if mismatches:
+            raise RuntimeError(
+                "Locked EGARCH-X result cache is invalid for current data/code: "
+                + ", ".join(mismatches)
+                + ". Re-run scripts/run_daily_egarch_x_locked.py --force or run_all.py --offline --recompute-heavy."
+            )
+        locked["cache_status"] = "hit"
+        locked["cache_invalidation_reason"] = ""
 
-    stock["report_day"] = 0.0
-    stock["novelty_event"] = 0.0
-    stock["policy_action"] = 0.0
-    mapping = {}
-    action_mapping = {}
-    for _, ev in events.iterrows():
-        d = pd.to_datetime(ev["equity_event_date"]).date()
-        mapping[d] = ev.get("guidance_novelty", 0)
-        action_mapping[d] = ev.get("action_nearby_core", 0)
-    stock["report_day"] = stock["date"].dt.date.isin(set(mapping.keys())).astype(float)
-    stock["novelty_event"] = stock["date"].dt.date.map(mapping).fillna(0.0)
-    stock["policy_action"] = stock["date"].dt.date.map(action_mapping).fillna(0.0)
-
-    returns = stock["simple_return"].dropna()
-    report_day = stock.loc[returns.index, "report_day"]
-    novelty = stock.loc[returns.index, "novelty_event"]
-    policy_action = stock.loc[returns.index, "policy_action"]
-
-    main_result = run_egarch_x(returns, report_day, novelty, policy_action=policy_action, dist="student_t")
-    sensitivity = run_egarch_x_sensitivity(returns, {
-        "D0": report_day,
-        "D0_D1": ((report_day.astype(bool) | report_day.shift(1).fillna(0).astype(bool)).astype(float)),
-        "D1": report_day.shift(1).fillna(0).astype(float),
-    }, novelty, policy_action=policy_action, dist="student_t")
-
-    perm_p = permutation_test_novelty(returns, report_day, novelty, policy_action=policy_action, n_perm=50, seed=2026)
-    write_egarch_x_results(RESULTS_DIR / "daily_egarch_x_results.json", main_result, sensitivity)
-
-    return {"main": main_result, "sensitivity": sensitivity.to_dict(orient="records"), "permutation_p_novelty": perm_p}
+    conditional_path = RESULTS_DIR / "daily_egarch_x_conditional.json"
+    conditional_csv = RESULTS_DIR / "daily_egarch_x_conditional.csv"
+    nuisance = _nuisance_from_locked(locked)
+    conditional = run_fixed_nuisance_conditional_egarch_x(
+        daily,
+        hashes,
+        nuisance,
+        nuisance_parameter_source=str(locked_path.relative_to(ROOT)),
+        n_perm=99,
+        seed=2026,
+        output_json=conditional_path,
+        output_csv=conditional_csv,
+    )
+    comparison = compare_locked_and_conditional(locked, conditional)
+    combined = {
+        "main_model": locked,
+        "conditional_model": conditional,
+        "comparison": comparison,
+        "diagnostics": {
+            "method": "full_joint_mle_plus_fixed_nuisance_conditional_likelihood",
+            "warning": "D0 full joint MLE is the formal daily robustness result; D1, D0_D1 and permutation are diagnostics.",
+        },
+        "sensitivity": conditional["sensitivity"],
+        "permutation_p_novelty": conditional["permutation_p_novelty"],
+    }
+    (RESULTS_DIR / "daily_egarch_x_results.json").write_text(json.dumps(combined, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "main": locked,
+        "conditional": conditional,
+        "comparison": comparison,
+        "sensitivity": conditional["sensitivity"],
+        "permutation_p_novelty": conditional["permutation_p_novelty"],
+    }
 
 
 def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFrame) -> dict:
@@ -633,13 +675,17 @@ def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFra
     }
 
 
-def run_pipeline(execute_nb: bool = True) -> dict:
-    results = build_results()
+def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False) -> dict:
+    results = build_results(recompute_heavy=recompute_heavy)
     build_notebook()
-    notebook_result = execute_notebook() if execute_nb else {"returncode": 0, "skipped": True}
     build_paper(results)
     pdf_check = inspect_pdf()
     submission_summary = build_final_submission()
+    if execute_nb:
+        notebook_result = execute_notebook()
+        submission_summary = build_final_submission()
+    else:
+        notebook_result = {"returncode": 0, "skipped": True}
     summary = {
         "status": "PASS",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -653,12 +699,16 @@ def run_pipeline(execute_nb: bool = True) -> dict:
         "text_validation_topic_accuracy": results["text_validation"]["topic_accuracy"],
         "sentiment_cv_accuracy": results["text_model_summary"]["sentiment_cv"].get("accuracy"),
         "stance_cv_accuracy": results["text_model_summary"]["policy_stance_cv"].get("accuracy"),
-        "egarch_x_status": results["egarch_x"]["main"].get("status"),
-        "egarch_x_novelty_coef": results["egarch_x"]["main"].get("exog_params", {}).get("exog_1"),
+        "egarch_x_status": results["egarch_x"]["main"].get("method"),
+        "egarch_x_novelty_coef": results["egarch_x"]["main"].get("parameters", {}).get("novelty"),
         "egarch_x_perm_p": results["egarch_x"]["permutation_p_novelty"],
         "notebook_returncode": notebook_result["returncode"],
         "pdf_pages": pdf_check["page_count"],
         "final_submission_files": submission_summary["included_files"],
     }
     (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    submission_summary = build_final_submission()
+    summary["final_submission_files"] = submission_summary["included_files"]
+    (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    build_final_submission()
     return summary
