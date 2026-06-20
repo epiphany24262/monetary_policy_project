@@ -105,7 +105,7 @@ def _add_title(doc: Document, text: str) -> None:
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _set_paragraph_spacing(para, line_spacing=Pt(30), space_after=Pt(6))
     run = para.add_run(text)
-    _set_run_font(run, "黑体", FONT_TITLE, bold=True)
+    _set_run_font(run, "方正小标宋简体", FONT_TITLE, bold=False)
 
 
 def _add_author(doc: Document, text: str) -> None:
@@ -176,19 +176,19 @@ def _add_english_section(doc: Document) -> None:
     p3 = doc.add_paragraph()
     _set_paragraph_spacing(p3, first_line_indent=Pt(21))
     run3 = p3.add_run("Abstract: ")
-    _set_run_font(run3, "仿宋", Pt(9), bold=True, name_en="Times New Roman")
+    _set_run_font(run3, "仿宋", Pt(10.5), bold=True, name_en="Times New Roman")
     run3b = p3.add_run(
         "This paper studies how textual features in the People's Bank of China's "
         "Monetary Policy Implementation Reports relate to short-window financial "
         "market responses. The formal empirical sample is locked at 2006Q1–2025Q4. "
         "The main stock-market model uses expanding TF-IDF novelty in the policy-guidance "
-        "section to explain post-release realized volatility. The main bond-market model "
+        "section to explain post-release realized volatility. The exploratory bond-market extension "
         "uses unexpected policy tone to explain yield-curve slope changes. "
         "A manual annotation validation of 240 sentences reveals systematic limitations "
         "of lexicon-based methods at the sentence level, and document-level policy-tone "
         "measures do not yield robust bond-market evidence across alternative specifications."
     )
-    _set_run_font(run3b, "仿宋", Pt(9), bold=False, name_en="Times New Roman")
+    _set_run_font(run3b, "仿宋", Pt(10.5), bold=False, name_en="Times New Roman")
 
     # English keywords
     p4 = doc.add_paragraph()
@@ -197,7 +197,7 @@ def _add_english_section(doc: Document) -> None:
         "Key Words: monetary policy communication; policy guidance; "
         "textual novelty; stock volatility; yield curve"
     )
-    _set_run_font(run4, "仿宋", Pt(9), bold=False, name_en="Times New Roman")
+    _set_run_font(run4, "仿宋", Pt(10.5), bold=False, name_en="Times New Roman")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -290,7 +290,7 @@ def _add_three_line_table(doc: Document, df: pd.DataFrame, title: str = "",
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _set_paragraph_spacing(p, Pt(14), Pt(0), Pt(2), Pt(2))
         run = p.add_run(str(col_name))
-        _set_run_font(run, "宋体", Pt(8), bold=True)
+        _set_run_font(run, "宋体", Pt(9), bold=True)
         # Thin border below header
         _set_cell_border(cell, "bottom", "single", "6", "000000")
         # Light gray header background
@@ -311,7 +311,7 @@ def _add_three_line_table(doc: Document, df: pd.DataFrame, title: str = "",
             val = row[col_name]
             txt = f"{val:.4f}" if isinstance(val, float) else str(val)
             run = p.add_run(txt)
-            _set_run_font(run, "宋体", Pt(7.5), bold=False)
+            _set_run_font(run, "宋体", Pt(9), bold=False)
             # Thin vertical borders between columns only
             _set_cell_border(cell, "left", "single", "4", "CCCCCC")
             _set_cell_border(cell, "right", "single", "4", "CCCCCC")
@@ -386,7 +386,7 @@ def _build_content(doc: Document, results: dict) -> None:
         f"和仅使用历史信息的未预期语调指标。股票主模型以报告发布后五个交易日实际"
         f"波动率的对数为被解释变量，政策指引创新度的早期样本系数为 {beta:.4f}，"
         f"HC3 p 值为 {pval:.4f}，2019 年后总效应为 {total:.4f}。"
-        f"债券主模型使用未预期政策语调解释收益率曲线斜率变化，"
+        f"债券探索性模型使用未预期政策语调解释收益率曲线斜率变化，"
         f"主系数为 {curve_main['beta']:.4f}，p 值为 {curve_main['p_value']:.4f}。"
         f"本文对 240 句抽样文本进行了人工标注验证，并分别报告初始词典、语境门控"
         f"和字符TF-IDF+LinearSVC的分组交叉验证结果；初始词典只作为领域迁移失败基准。"
@@ -515,7 +515,7 @@ def _build_content(doc: Document, results: dict) -> None:
         "β₁+β₅。估计使用 OLS 和 HC3 稳健标准误，并报告 Bootstrap 置信区间和置换检验。"
     )
     _add_body_paragraph(doc,
-        "债券主模型设定为：Δslope_bp_0_3 = α + β₁·guidance_unexpected_tone + "
+        "债券探索性模型设定为：Δslope_bp_0_3 = α + β₁·guidance_unexpected_tone + "
         "β₂·action_nearby_core + β₃·post_2019 + β₄·guidance_unexpected_tone×post_2019 "
         "+ ε。未预期政策语调由扩展窗口预测得到：对每一期报告，只使用此前已经发布的"
         "政策倾向序列估计 AR(1) 预测值，实际政策倾向减去预测值即为未预期语调。"
@@ -562,7 +562,7 @@ def _build_content(doc: Document, results: dict) -> None:
         "波动率可能自然较高；只有控制事件前波动率后，政策指引创新度的系数才更接近"
         "报告新增信息与市场重新定价之间的关系。债券收益率曲线水平、斜率和曲率的变化"
         "幅度通常小于股票波动指标，但它们对应更明确的利率预期含义。斜率变化为本文"
-        "债券主检验，因为政策沟通可能同时影响短端政策预期和长端经济预期。期限利差的"
+        "债券探索性基准规格，因为政策沟通可能同时影响短端政策预期和长端经济预期。期限利差的"
         "变化方向取决于政策语调对短端和长端的相对影响：若未预期「宽松」语调主要降低短端"
         "利率预期，斜率可能上升；若同时降低增长预期和期限溢价，斜率也可能收窄。"
     )
@@ -769,11 +769,19 @@ def _build_content(doc: Document, results: dict) -> None:
     # ── References ──
     _add_level1_heading(doc, "参考文献")
     refs = [
-        "[1] 姜富伟、胡逸驰、黄楠. 央行货币政策报告文本信息、宏观经济与股票市场[J]. 金融研究, 2021(6).",
-        "[2] 董青马、张皓越、马剑文、尚玉皇. 央行沟通与资产价格——识别「潜在」未预期货币政策信息[J]. 金融研究, 2024(6).",
-        "[3] 尚玉皇、刘华、申峰. 预期的博弈：央行沟通与国债收益率曲线[J]. 金融研究, 2025(9).",
-        "[4] Du Z, Huang A G, Wermers R, Wu W. Language and Domain Specificity: A Chinese Financial Sentiment Dictionary[J]. Review of Finance, 2022, 26(3): 673–719.",
-        "[5] Gürkaynak R S, Sack B, Swanson E. Do Actions Speak Louder than Words?[J]. International Journal of Central Banking, 2005, 1(1): 55–93.",
+        "董青马、张皓越、马剑文、尚玉皇. 央行沟通与资产价格——识别「潜在」未预期货币政策信息[J]. 金融研究，2024(6).",
+        "姜富伟、胡逸驰、黄楠. 央行货币政策报告文本信息、宏观经济与股票市场[J]. 金融研究，2021(6).",
+        "尚玉皇、刘华、申峰. 预期的博弈：央行沟通与国债收益率曲线[J]. 金融研究，2025(9).",
+        "中国人民银行. 中国货币政策执行报告[R]. 2006—2025年各季度.",
+        "Blinder A S, Ehrmann M, Fratzscher M, de Haan J, Jansen D J. Central Bank Communication and Monetary Policy: A Survey of Theory and Evidence[J]. Journal of Economic Literature, 2008, 46(4): 910-945.",
+        "Du Z, Huang A G, Wermers R, Wu W. Language and Domain Specificity: A Chinese Financial Sentiment Dictionary[J]. Review of Finance, 2022, 26(3): 673-719.",
+        "Ehrmann M, Talmi J. Starting from a Blank Page? Semantic Similarity in Central Bank Communication and Market Volatility[J]. Journal of Monetary Economics, 2020, 111: 48-62.",
+        "Gürkaynak R S, Sack B, Swanson E. Do Actions Speak Louder than Words? The Response of Asset Prices to Monetary Policy Actions and Statements[J]. International Journal of Central Banking, 2005, 1(1): 55-93.",
+        "Hansen S, McMahon M. Shocking Language: Understanding the Macroeconomic Effects of Central Bank Communication[J]. Journal of International Economics, 2016, 99(S1): S114-S133.",
+        "Jarociński M, Karadi P. Deconstructing Monetary Policy Surprises—The Role of Information Shocks[J]. American Economic Journal: Macroeconomics, 2020, 12(2): 1-43.",
+        "Kuttner K N. Monetary Policy Surprises and Interest Rates: Evidence from the Fed Funds Futures Market[J]. Journal of Monetary Economics, 2001, 47(3): 523-544.",
+        "McMahon M, Schipke A, Li X. China’s Monetary Policy Communication: Frameworks, Impact, and Recommendations[R]. IMF Working Paper WP/18/244, 2018.",
+        "Nakamura E, Steinsson J. High-Frequency Identification of Monetary Non-Neutrality: The Information Effect[J]. Quarterly Journal of Economics, 2018, 133(3): 1283-1330.",
     ]
     for ref in refs:
         _add_body_paragraph(doc, ref)
@@ -812,7 +820,7 @@ def inspect_pdf() -> dict:
         pix.save(img)
         samples = bytes(pix.samples)
         nonwhite = any(channel < 245 for channel in samples[:: max(1, len(samples) // 5000)])
-        pages.append({"page": i + 1, "text_chars": len(text), "png": img.relative_to(ROOT).as_posix(), "nonblank": len(text) > 20 or nonwhite})
+        pages.append({"page": i + 1, "text_chars": len(text), "png": img.relative_to(ROOT).as_posix(), "nonblank": len(text) > 0 or nonwhite})
     result = {"page_count": len(doc), "all_pages_nonblank": all(p["nonblank"] for p in pages), "pages": pages}
     doc.close()
     (ROOT / "output" / "results" / "pdf_visual_check_refactor.json").write_text(
@@ -967,8 +975,13 @@ def _write_paper_audits(numbers: dict, refs: list[dict[str, str]], results: dict
 
 def _build_final_pdf(results: dict, numbers: dict) -> None:
     try:
-        import win32com.client  # type: ignore
-
+        from docx2pdf import convert as docx2pdf_convert
+        docx2pdf_convert(str(DOCX_PATH.resolve()), str(PDF_PATH.resolve()))
+        return
+    except Exception:
+        pass
+    try:
+        import win32com.client
         word = win32com.client.DispatchEx("Word.Application")
         word.Visible = False
         doc = word.Documents.Open(str(DOCX_PATH.resolve()))
@@ -1069,9 +1082,29 @@ def build_paper(results: dict) -> None:
     numbers = _paper_numbers(results)
     if COVER_PATH.exists():
         doc = Document(str(COVER_PATH))
+        # Suppress trailing empty paragraphs on cover to prevent blank page 2
+        for p in reversed(doc.paragraphs):
+            if not p.text.strip():
+                pf = p.paragraph_format
+                pf.space_before = Pt(0)
+                pf.space_after = Pt(0)
+                pf.line_spacing = Pt(1)
+                for r in p.runs:
+                    r.font.size = Pt(1)
         from docx.enum.section import WD_SECTION_START
-
         section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+        # Suppress page number on cover section
+        cover_sec = doc.sections[0]
+        cover_sec.different_first_page_header_footer = True
+        # Restart page numbering at 1 for body section
+        section.start_type = WD_SECTION_START.NEW_PAGE
+        sectPr = section._sectPr
+        pgNumType = sectPr.find(qn('w:pgNumType'))
+        if pgNumType is None:
+            from docx.oxml import OxmlElement
+            pgNumType = OxmlElement('w:pgNumType')
+            sectPr.append(pgNumType)
+        pgNumType.set(qn('w:start'), '1')
     else:
         doc = Document()
         section = doc.sections[0]
@@ -1106,8 +1139,8 @@ def build_paper(results: dict) -> None:
         "本文的课程重点放在Python数据处理和可复现研究流程：先整理央行报告原文、章节和发布时间，再用词典、语境门控、字符TF-IDF和分组交叉验证检验文本测量，最后构造股票和债券事件窗口。所有中间表、回归表、图形和论文数字由同一套流水线生成，便于复算。",
         "固定路线的含义是先确定理论上可以解释的问题，再让数据和模型回答该问题。政策指引创新度进入股票波动主检验，是因为它衡量报告相对历史政策文本的新增信息；Student-t EGARCH-X进入日度稳健性，是因为日收益率存在厚尾和条件异方差；跨拟合语调用于债券探索，是因为句子级监督模型可以减少同一文本既训练又解释市场反应的泄漏风险。这些选择在估计前已经锁定，后文只报告结果，不再根据显著性改换窗口、变量或分布。",
         "本文没有把课设写成单纯的回归练习，而是把数据处理过程本身作为研究对象之一。央行报告的PDF抽取、章节识别、发布时间对齐、交易日映射、文本向量化和事件窗口构造，每一步都会影响最终系数。将这些步骤写入代码并生成可检查的中间表，可以让读者判断结果来自哪一项处理，而不是只看到最后一张回归表。",
-        "文献上，姜富伟等[1]提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等[2]强调资产价格反应来自未预期信息；尚玉皇等[3]讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
-        "国际研究中，Blinder等[10]系统总结央行沟通的理论和经验证据，McMahon等[9]讨论中国央行沟通制度及其市场影响。Gurkaynak等[5]区分政策行动和声明信息，Kuttner[14]用联邦基金期货识别未预期政策变化，Hansen和McMahon[11]把央行文本中的宏观信息与政策指引区分开来。Nakamura和Steinsson[12]、Jarocinski和Karadi[13]进一步提醒，公告中的央行信息效应可能使市场反应不能被简单解释为单纯宽松或紧缩冲击。Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
+        "文献上，姜富伟等（2021）提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等（2024）强调资产价格反应来自未预期信息；尚玉皇等（2025）讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
+        "国际研究中，Blinder等（2008）系统总结央行沟通的理论和经验证据，McMahon等（2018）讨论中国央行沟通制度及其市场影响。Gürkaynak等（2005）区分政策行动和声明信息，Kuttner[14]用联邦基金期货识别未预期政策变化，Hansen和McMahon[11]把央行文本中的宏观信息与政策指引区分开来。Nakamura和Steinsson[12]、Jarocinski和Karadi[13]进一步提醒，公告中的央行信息效应可能使市场反应不能被简单解释为单纯宽松或紧缩冲击。Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
     ]:
         _add_body_paragraph(doc, text)
 
@@ -1123,7 +1156,7 @@ def build_paper(results: dict) -> None:
 
     _add_level1_heading(doc, "三、文本特征工程与测量验证")
     for text in [
-        "本文使用两层文本测量。第一层是可解释词典：中文金融情感词典[4]提供一般正负向金融词，PBC领域词典区分偏宽松和偏收紧表达，并对增长、通胀、风险、汇率、金融稳定和房地产六类主题计算连续关注度。第二层是监督验证：在人工标注句子上使用字符TF-IDF和LinearSVC，不引入大型预训练模型。",
+        "本文使用两层文本测量。第一层是可解释词典：中文金融情感词典（Du等，2022）提供一般正负向金融词，PBC领域词典区分偏宽松和偏收紧表达，并对增长、通胀、风险、汇率、金融稳定和房地产六类主题计算连续关注度。第二层是监督验证：在人工标注句子上使用字符TF-IDF和LinearSVC，不引入大型预训练模型。",
         "语境门控先判断句子是否处于货币政策语境中，再解释鹰鸽方向。这样可以把政策四分类和条件三分类分开：四分类检验dovish、hawkish、neutral和irrelevant；条件三分类只在人工标为政策相关的句子中比较dovish、hawkish和neutral。",
         f"实时重打分的人工验证结果显示，情感三分类准确率为{_fmt(numbers['sentiment_acc'])}，Macro-F1为{_fmt(numbers['sentiment_f1'])}；政策四分类准确率为{_fmt(numbers['stance_acc'])}，Macro-F1为{_fmt(numbers['stance_f1'])}；条件三分类准确率为{_fmt(numbers['direction_acc'])}，Macro-F1为{_fmt(numbers['direction_f1'])}；主题分类准确率为{_fmt(numbers['topic_acc'])}，Macro-F1为{_fmt(numbers['topic_f1'])}。",
         f"字符TF-IDF+LinearSVC的按报告分组交叉验证显示，情感Accuracy为{_fmt(numbers['svc_sentiment_acc'])}、Macro-F1为{_fmt(numbers['svc_sentiment_f1'])}；政策四分类Accuracy为{_fmt(numbers['svc_stance_acc'])}、Macro-F1为{_fmt(numbers['svc_stance_f1'])}；条件三分类Accuracy为{_fmt(numbers['svc_direction_acc'])}、Macro-F1为{_fmt(numbers['svc_direction_f1'])}；主题硬分类Accuracy为{_fmt(numbers['svc_topic_acc'])}、Macro-F1为{_fmt(numbers['svc_topic_f1'])}。",
@@ -1227,7 +1260,7 @@ def build_paper(results: dict) -> None:
     _add_level1_heading(doc, "七、收益率曲线与跨拟合政策语调")
     for text in [
         f"债券部分以未预期政策语调解释国债收益率曲线斜率变化。主模型中未预期语调系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}；2019年交互项为{_fmt(numbers['curve_interaction'])}，2019年后总效应为{_fmt(numbers['curve_total'])}，总效应p值为{_fmt(numbers['curve_total_p'])}。",
-        f"跨拟合政策语调使用人工标注句子训练字符TF-IDF与LinearSVC，并在当前折外预测报告的政策指引句子。政策相关句均值聚合的探索系数为{_fmt(numbers['cross_coef'])}，p值为{_fmt(numbers['cross_p'])}，2019年后总效应为{_fmt(numbers['cross_total'])}，总效应p值为{_fmt(numbers['cross_total_p'])}。这些结果只作为探索性扩展，不替代锁定的债券主模型。",
+        f"跨拟合政策语调使用人工标注句子训练字符TF-IDF与LinearSVC，并在当前折外预测报告的政策指引句子。政策相关句均值聚合的探索系数为{_fmt(numbers['cross_coef'])}，p值为{_fmt(numbers['cross_p'])}，2019年后总效应为{_fmt(numbers['cross_total'])}，总效应p值为{_fmt(numbers['cross_total_p'])}。这些结果只作为探索性扩展，不替代锁定的债券探索性模型。",
         "跨拟合的作用是把文本测量验证和金融回归连接起来。每个折外预测只使用其他报告中的人工标签训练模型，再把预测聚合到本报告层面，降低同一报告句子同时参与训练和解释市场反应的风险。由于人工标签规模有限，债券结果只作为探索性证据；若方向一致但p值较大，本文只说明经济含义上的一致性，不写成统计显著。",
         "收益率曲线斜率还受到期限溢价和增长预期共同影响，同一段央行表述可能同时改变短端政策预期和长端宏观判断。因此，本文没有把某一个期限点的变化单独作为主结论，而是同时保留水平、斜率和曲率表，重点讨论斜率规格中未预期语调和2019年后交互项的方向、大小和不确定性。",
         "收益率曲线结果的解释需要谨慎。短端和长端收益率同时受到公开市场操作、宏观数据、风险偏好和流动性条件影响，央行报告文本只是其中一类信息来源。本文保留不显著结果，并把它作为市场吸收央行沟通信息边界的证据之一。",

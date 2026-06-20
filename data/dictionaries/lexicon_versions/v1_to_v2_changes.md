@@ -1,7 +1,7 @@
 # PBC Domain Lexicon Change Report
 
 **v1 → v2**
-**Saved at**: 2026-06-20T23:23:39
+**Saved at**: 2026-06-21T01:39:18
 **Note**: v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), risk (+6), exchange_rate (+5), financial_stability (+9), real_estate (+17) based on 240-sentence manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged.
 
 ## Changes by category

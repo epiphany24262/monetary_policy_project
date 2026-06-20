@@ -72,7 +72,7 @@ def wild_bootstrap_power(
 
         power = significant / n_sim if n_sim > 0 else np.nan
 
-        # Minimum detectable effect at 80% power
+        # Minimum detectable effect at 80%检验功效
         se_full = full_result["bse_hc3"].get(target, 1.0)
         se_scaled = se_full * np.sqrt(n_full / n) if n > 0 else np.nan
         mde = se_scaled * (scipy_stats_norm_ppf(1 - alpha / 2) + scipy_stats_norm_ppf(0.8)) if n > 0 else np.nan
@@ -135,10 +135,10 @@ def write_power_outputs(result: pd.DataFrame) -> dict[str, Path]:
     if len(valid) > 0:
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.plot(valid["sample_size"], valid["power"], "ko-", markersize=6)
-        ax.axhline(0.8, color="gray", linestyle="--", linewidth=0.8, label="80% power")
-        ax.set_xlabel("Sample Size (N)")
-        ax.set_ylabel("Power")
-        ax.set_title("Power Curve — guidance_novelty (α=0.05)")
+        ax.axhline(0.8, color="gray", linestyle="--", linewidth=0.8, label="80%检验功效")
+        ax.set_xlabel("独立报告事件数")
+        ax.set_ylabel("检验功效")
+        ax.set_title("政策指引创新度检验功效曲线 (α=0.05)")
         ax.legend()
         fig.tight_layout()
         fig.savefig(FIGURES_DIR / "figure_market_power_curve.png", dpi=200)

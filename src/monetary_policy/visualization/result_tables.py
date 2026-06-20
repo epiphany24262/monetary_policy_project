@@ -12,7 +12,7 @@ def variable_definition_table() -> pd.DataFrame:
             ("guidance_z_sentiment", "政策指引章节金融情感指数的 Z 标准化值", "股票收益解释变量"),
             ("macro_z_sentiment", "宏观章节金融情感指数的 Z 标准化值", "宏观信息对照"),
             ("guidance_unexpected_tone", "仅用历史数据滚动 AR(1) 预测后的指引政策倾向残差", "未预期语调"),
-            ("guidance_unexpected_tone_x_post_2019", "未预期政策语调与 2019 年后样本虚拟变量的交互项", "债券主模型解释变量"),
+            ("guidance_unexpected_tone_x_post_2019", "未预期政策语调与 2019 年后样本虚拟变量的交互项", "债券探索性模型解释变量"),
             ("level", "1 年、5 年、10 年国债收益率均值", "收益率曲线水平"),
             ("slope", "10 年期收益率减 1 年期收益率", "收益率曲线斜率"),
             ("curvature", "2×5 年期收益率 − 1 年期收益率 − 10 年期收益率", "收益率曲线曲率"),

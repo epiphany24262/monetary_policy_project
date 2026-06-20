@@ -8,6 +8,11 @@ def set_style() -> None:
     plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
     plt.rcParams["figure.dpi"] = 120
+    # Journal black/white style
+    plt.rcParams["axes.prop_cycle"] = plt.cycler(
+        color=["#000000", "#555555", "#AAAAAA", "#333333", "#777777"]
+    )
+    plt.rcParams["lines.linewidth"] = 1.2
 
 
 def plot_tone_series(features: pd.DataFrame, path) -> pd.DataFrame:
@@ -30,7 +35,7 @@ def plot_tone_series(features: pd.DataFrame, path) -> pd.DataFrame:
     fig, ax = plt.subplots(figsize=(8, 4.8))
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["guidance_z_sentiment"], label="政策指引金融情感", color="black")
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["macro_z_sentiment"], label="宏观章节金融情感", color="gray", linestyle="--")
-    ax.plot(pd.to_datetime(df["publication_datetime"]), df["guidance_z_policy_stance"], label="政策指引倾向", color="#4575b4", linewidth=1.2)
+    ax.plot(pd.to_datetime(df["publication_datetime"]), df["guidance_z_policy_stance"], label="政策指引倾向", color="#555555", linewidth=1.2)
     ax.axhline(0, color="black", linewidth=0.8)
     ax.set_title("图1 政策指引、宏观语调与政策倾向")
     ax.set_ylabel("Z 标准化指数")

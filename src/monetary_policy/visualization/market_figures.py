@@ -29,7 +29,7 @@ def plot_similarity_scatter(panel: pd.DataFrame, path) -> pd.DataFrame:
     source = panel[["guidance_novelty", "log_rv_0_5", "rv_0_5", "post_2019"]].dropna()
     source.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    colors = source["post_2019"].map({0: "black", 1: "#4575b4"})
+    colors = source["post_2019"].map({0: "black", 1: "#333333"})
     ax.scatter(source["guidance_novelty"], source["log_rv_0_5"], color=colors, alpha=0.75)
     if len(source) >= 3:
         b, a = np.polyfit(source["guidance_novelty"], source["log_rv_0_5"], 1)

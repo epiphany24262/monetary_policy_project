@@ -83,7 +83,7 @@ def build_research_documents() -> None:
             "source": "尚玉皇、刘华、申峰（2025）《预期的博弈：央行沟通与国债收益率曲线》",
             "verified_url": "https://www.jryj.org.cn/CN/abstract/abstract1520.shtml",
             "method_used_by_source": "研究沟通与收益率曲线整体水平、期限利差及市场预期互动。",
-            "project_use": "构造 level、slope、curvature，并以斜率短窗作为债券主检验。",
+            "project_use": "构造 level、slope、curvature，并以斜率短窗作为债券探索性基准规格。",
             "not_adopted": "不强行扩展 Nelson-Siegel 或 PCA，因为当前稳定期限只有 1/5/10 年。",
         },
         {
