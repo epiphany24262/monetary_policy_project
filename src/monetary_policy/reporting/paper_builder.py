@@ -387,8 +387,8 @@ def _build_content(doc: Document, results: dict) -> None:
         f"HC3 p 值为 {pval:.4f}，2019 年后总效应为 {total:.4f}。"
         f"债券主模型使用未预期政策语调解释收益率曲线斜率变化，"
         f"主系数为 {curve_main['beta']:.4f}，p 值为 {curve_main['p_value']:.4f}。"
-        f"本文对 240 句抽样文本进行了人工标注验证，发现自动词典在句子级存在系统性偏误"
-        f"（情感准确率 26.25%、政策倾向准确率 14.17%），但文档级聚合指标在回归中更为稳健。"
+        f"本文对 240 句抽样文本进行了人工标注验证，并分别报告初始词典、语境门控"
+        f"和字符TF-IDF+LinearSVC的分组交叉验证结果；初始词典只作为领域迁移失败基准。"
         f"研究结论限于短窗口相关关系，不作强因果解释。"
     )
     _add_keywords(doc, "关键词：货币政策沟通；政策指引；文本创新度；股票波动；收益率曲线")
@@ -679,9 +679,10 @@ def _build_content(doc: Document, results: dict) -> None:
     _add_level1_heading(doc, "九、稳健性、诊断与人工验证")
     _add_body_paragraph(doc,
         "诊断部分包括 VIF、条件数、Bootstrap 置信区间、置换检验和 EGARCH 模型。"
-        "EGARCH 仅用于描述日度收益的条件异方差特征，文本变量进入的是 ARX 均值方程"
-        "而非 EGARCH 方差方程——因此该输出不能被错误解释为文本直接影响条件方差的"
-        "证据，真正的波动主检验仍是事件后实际波动率回归。VIF 诊断结果表明各模型解释"
+        "正式D0日度稳健性模型将标准化政策指引创新度纳入Student-t EGARCH-X条件"
+        "方差方程，并通过受限与非受限联合MLE的似然比检验报告正式推断；D+1、D0+D1"
+        "和置换检验仅作为日期敏感性和诊断材料，真正的核心主检验仍是事件后实际波动率回归。"
+        "VIF 诊断结果表明各模型解释"
         "变量之间不存在严重的多重共线性问题，条件数均在可接受范围内。Bootstrap 置信"
         "区间与 HC3 渐近区间方向一致，进一步支持了小样本下推断的稳健性。"
     )
@@ -690,22 +691,17 @@ def _build_content(doc: Document, results: dict) -> None:
         "和字符 n-gram 创新度，并对文本指标族进行 Holm 校正。主变量保持不变，其他指标"
         "只回答「结果是否依赖某一种文本表示」。分样本结果报告 2006—2018 年、2019—2025 "
         "年、疫情期间和非疫情期间，目的是揭示制度背景变化，而非挑选显著区间。诊断部分"
-        "包括 VIF、条件数、Bootstrap、置换检验和 EGARCH。EGARCH 仅用于描述日度收益的"
-        "条件异方差诊断，文本变量进入的是 ARX 均值方程而非 EGARCH 方差方程，该输出"
-        "不能被解释为「文本直接影响条件方差」的证据。"
+        "包括 VIF、条件数、Bootstrap、置换检验和EGARCH-X。EGARCH-X的D0规格为完整"
+        "连续日收益序列上的联合MLE，D1和D0+D1使用固定干扰参数条件似然，均不改变"
+        "事件级股票波动率OLS这一核心主检验。"
     )
     _add_body_paragraph(doc,
         "人工验证方面，本文已生成 240 条句子级抽样文件（政策指引和宏观章节各约 120 "
-        "句），由标注人罗允绩完成金融情感、政策倾向和主题类别的人工标注。以人工标签为"
-        "基准，自动词典标签的验证结果显示：（1）金融情感三分类准确率为 26.25%，Macro-F1 "
-        "为 0.304，主要问题是自动词典过度预测 positive（157 句人工 neutral 被自动标为"
-        "positive），原因在于中文金融情感词典面向文档级金融市场分析设计，直接用于句子级"
-        "政策文本会产生系统性正向偏误；（2）政策倾向四分类准确率为 14.17%，hawkish 召回"
-        "率为 0%，PBC 领域词典（v2）在句子级仍存在严重覆盖不足；（3）主题分类经 v2 词典"
-        "扩展后准确率从 38.33% 提升至 58.75%，growth 召回率从 35.1% 提升至 62.3%，"
-        "但 risk 和 inflation 的召回率仍偏低。综合来看，自动词典在句子级存在系统性误差，"
-        "但文档级聚合后的标准化指标在回归中更为稳健。词典版本历史保存在 "
-        "data/dictionaries/lexicon_versions/ 目录下。本文不根据市场回归显著性修改人工标签。"
+        "句），由标注人罗允绩完成金融情感、政策倾向和主题类别的人工标注。论文和Notebook"
+        "从当前结果文件读取初始词典、语境门控和字符TF-IDF+LinearSVC的Accuracy、Macro-F1"
+        "及核心类别召回率，并使用按report_id和近重复文本分组的交叉验证。初始词典结果只"
+        "用于展示领域迁移问题，语境门控作为可解释基准，LinearSVC作为监督测量验证；主题"
+        "硬分类降级，连续主题关注度用于正式描述。本文不根据市场回归显著性修改人工标签。"
     )
 
     # Section 10
@@ -716,9 +712,8 @@ def _build_content(doc: Document, results: dict) -> None:
         "沟通新增信息的核心指标，并与报告发布后股票市场实际波动率存在可检验关系；2019 "
         "年后交互项提示这种关系可能随市场背景和政策框架变化而改变。债券部分以未预期政策"
         "语调解释收益率曲线斜率变化，所有不显著结果均保留并解释，不因估计结果更换主窗口"
-        "或主变量。人工标注验证（240 句）表明自动词典在句子级存在系统性偏误——金融情感"
-        "准确率 26.25%、政策倾向准确率 14.17%——但文档级聚合指标在回归中更为稳健。"
-        "词典版本从 v1 升级至 v2 后，主题分类准确率从 38.33% 提升至 58.75%。"
+        "或主变量。人工标注验证（240 句）用于比较初始词典、语境门控和字符TF-IDF+LinearSVC，"
+        "并将主题硬分类降级为辅助验证，正式解释使用连续主题关注度。"
     )
     _add_body_paragraph(doc,
         "本文的经验含义可以概括为三点。第一，央行季度报告的文本价值不只在于「宽松」或"
@@ -729,7 +724,7 @@ def _build_content(doc: Document, results: dict) -> None:
     )
     _add_body_paragraph(doc,
         "本文的局限包括：季度报告样本量有限（80 期）；文本指标依赖 PDF 抽取和词典规则，"
-        "句子级自动词典存在系统性偏误（已验证）；事件窗口研究难以完全排除同期宏观消息和"
+        "句子级自动词典存在系统性偏误（已验证，最终以分组交叉验证表报告）；事件窗口研究难以完全排除同期宏观消息和"
         "全球市场冲击。这些限制决定了本文结论应被理解为基于公开数据的经验证据，而不是"
         "完整的央行沟通定价模型。尽管如此，本文仍提供了一个可复现的课程研究框架：从真实"
         "央行报告和公开市场数据出发，固定样本边界，锁定分析计划，构建发布时点可获得的"
@@ -764,8 +759,8 @@ def _build_content(doc: Document, results: dict) -> None:
     _add_body_paragraph(doc,
         "为便于课程复核，本文所有核心数字均来自同一套中间表和结果表。读者可以从文本"
         "特征、事件面板、回归表、图形源数据逐步核对，确认 2026Q1 未进入正式样本、四个"
-        "早期政策指引章节已经修复、人工验证样本已完成标注（罗允绩，240 句）、EGARCH "
-        "仅作为诊断而非主证据、自动词典在句子级存在系统性偏误但文档级聚合指标稳健。"
+        "早期政策指引章节已经修复、人工验证样本已完成标注（罗允绩，240 句）、EGARCH-X "
+        "作为日度高级稳健性而非核心主检验、文本测量验证采用词典、语境门控和监督模型比较。"
         "这样的复核路径可以减少口径误差，也能让不显著结果和显著结果接受同样的检查，"
         "确保研究透明度和可复现性。"
     )
@@ -886,7 +881,7 @@ def _build_pdf(results: dict) -> None:
         f"本文基于中国人民银行货币政策执行报告研究央行沟通与金融市场短期反应。"
         f"正式样本锁定为 2006Q1 至 2025Q4。股票主模型中政策指引创新度系数为 {beta:.4f}（p={pval:.4f}），"
         f"债券主模型中未预期语调系数为 {curve_main['beta']:.4f}（p={curve_main['p_value']:.4f}）。"
-        f"人工标注验证（240 句）发现自动词典在句子级存在系统性偏误但文档级聚合指标稳健。"
+        f"人工标注验证（240 句）比较初始词典、语境门控和字符TF-IDF+LinearSVC，初始词典只作为失败基准。"
         f"研究结论限于短窗口相关关系。"
     ))
     _p("关键词：货币政策沟通；政策指引；文本创新度；股票波动；收益率曲线")
@@ -996,8 +991,18 @@ def _paper_numbers(results: dict) -> dict:
         "egarch_status": egarch_x["main"].get("method"),
         "egarch_converged": egarch_x["main"].get("converged"),
         "egarch_n": egarch_x["main"].get("n_daily_observations"),
-        "egarch_novelty": egarch_x["main"].get("parameters", {}).get("novelty"),
+        "egarch_novelty": egarch_x["main"].get("parameters", {}).get("novelty_z"),
         "egarch_report_day": egarch_x["main"].get("parameters", {}).get("report_day"),
+        "egarch_policy_action": egarch_x["main"].get("parameters", {}).get("policy_action_day"),
+        "egarch_formal_lr_p": egarch_x["main"].get("formal_lr_p_value"),
+        "egarch_formal_lr": egarch_x["main"].get("formal_lr_statistic"),
+        "egarch_var_change_pct": egarch_x["main"].get("conditional_variance_change_pct_per_1sd_novelty"),
+        "egarch_vol_change_pct": egarch_x["main"].get("conditional_volatility_change_pct_per_1sd_novelty"),
+        "egarch_date_start": egarch_x["main"].get("date_start"),
+        "egarch_date_end": egarch_x["main"].get("date_end"),
+        "egarch_report_events": egarch_x["main"].get("n_report_events"),
+        "egarch_novelty_events": egarch_x["main"].get("n_novelty_events"),
+        "egarch_policy_action_days": egarch_x["main"].get("n_policy_action_days"),
         "egarch_perm_p": egarch_x.get("permutation_p_novelty"),
         "power_max_n": max_power.get("sample_size"),
         "power_max": max_power.get("power"),
@@ -1034,6 +1039,8 @@ def _write_paper_audits(numbers: dict, refs: list[dict[str, str]], results: dict
         {"item": "stock_post_2019_total_effect", "value": numbers["stock_total"], "source": "output/results/stock_volatility_main.json"},
         {"item": "bond_unexpected_tone_beta", "value": numbers["curve_beta"], "source": "output/results/yield_curve_results.csv"},
         {"item": "egarch_x_novelty_coef", "value": numbers["egarch_novelty"], "source": "output/results/daily_egarch_x_results.json"},
+        {"item": "egarch_x_formal_lr_p", "value": numbers["egarch_formal_lr_p"], "source": "output/results/daily_egarch_x_results.json"},
+        {"item": "egarch_x_variance_change_pct", "value": numbers["egarch_var_change_pct"], "source": "output/results/daily_egarch_x_results.json"},
         {"item": "power_max", "value": numbers["power_max"], "source": "output/diagnostics/market_power_analysis.csv"},
         {"item": "cross_fitted_policy_relevant_coef", "value": numbers["cross_coef"], "source": "output/results/cross_fitted_bond_exploration.csv"},
         {"item": "manual_validation_rows", "value": results["text_validation"]["total_sentences"], "source": "data/validation/manual_sentence_annotation_filled.xlsx"},
@@ -1060,28 +1067,62 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
         pass
     font = _font_name()
     styles = getSampleStyleSheet()
-    normal = ParagraphStyle("final_body", parent=styles["Normal"], fontName=font, fontSize=9.5, leading=14, wordWrap="CJK")
-    heading = ParagraphStyle("final_heading", parent=styles["Heading1"], fontName=font, fontSize=13, leading=18, spaceBefore=8, spaceAfter=4, wordWrap="CJK")
-    title = ParagraphStyle("final_title", parent=styles["Title"], fontName=font, fontSize=16, leading=22, alignment=1, wordWrap="CJK")
+    normal = ParagraphStyle("final_body", parent=styles["Normal"], fontName=font, fontSize=9.5, leading=15, firstLineIndent=18, wordWrap="CJK")
+    note = ParagraphStyle("final_note", parent=styles["Normal"], fontName=font, fontSize=8.2, leading=11, wordWrap="CJK")
+    heading = ParagraphStyle("final_heading", parent=styles["Heading1"], fontName=font, fontSize=13, leading=18, spaceBefore=8, spaceAfter=4, alignment=1, wordWrap="CJK")
+    title = ParagraphStyle("final_title", parent=styles["Title"], fontName=font, fontSize=15, leading=21, alignment=1, wordWrap="CJK")
     pdf = SimpleDocTemplate(str(PDF_PATH), pagesize=A4, leftMargin=2.2 * cm, rightMargin=2.2 * cm, topMargin=2.0 * cm, bottomMargin=2.0 * cm)
-    story = [
-        Paragraph("四川大学课程论文封面见 DOCX 第一页", title),
-        Spacer(1, 0.4 * cm),
-        Paragraph("中国货币政策报告文本特征与金融市场反应", title),
-        Spacer(1, 0.2 * cm),
-        Paragraph("摘要、正文、表格、图形和参考文献的权威排版版本为同目录 DOCX 文件。此 PDF 为可阅读导出件。", normal),
-    ]
-    for sec in [
-        "研究路线固定为政策指引创新度与发布后五日股票实际波动率。",
-        f"股票主模型中创新度系数为 {_fmt(numbers['stock_beta'])}，p 值为 {_fmt(numbers['stock_p'])}。",
-        f"收益率曲线斜率模型中未预期语调系数为 {_fmt(numbers['curve_beta'])}，p 值为 {_fmt(numbers['curve_p'])}。",
-        f"Student-t EGARCH-X 状态为 {numbers['egarch_status']}，创新度方差项系数为 {_fmt(numbers['egarch_novelty'])}。",
-    ]:
-        story.append(Paragraph(sec, normal))
-        story.append(Spacer(1, 0.1 * cm))
-    for title_text in ["数据与文本处理", "事件研究设计", "股票与债券结果", "稳健性与局限"]:
-        story.append(Paragraph(title_text, heading))
-        story.append(Paragraph("完整内容、表格和参考文献见 DOCX 文件。", normal))
+    source_doc = Document(str(DOCX_PATH))
+
+    def clean_pdf_text(text: str) -> str:
+        return (
+            str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
+        )
+
+    story = [Paragraph("四川大学课程论文封面见 DOCX 第一页；以下为正文可阅读导出版。", note), Spacer(1, 0.15 * cm)]
+    for para in source_doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+        if text.startswith("中国货币政策报告文本特征") or text.startswith("——"):
+            style = title
+        elif text[:2] in {"一、", "二、", "三、", "四、", "五、", "六、", "七、", "八、"} or text in {"内容提要：", "参考文献"}:
+            style = heading
+        else:
+            style = normal
+        story.append(Paragraph(clean_pdf_text(text), style))
+        story.append(Spacer(1, 0.06 * cm))
+
+    if source_doc.tables:
+        story.append(Paragraph("表格内容摘录", heading))
+    for table in source_doc.tables:
+        rows = []
+        for row in table.rows:
+            values = [clean_pdf_text(cell.text.strip()) for cell in row.cells]
+            if any(values):
+                rows.append([Paragraph(v or " ", note) for v in values])
+        if rows:
+            width = 16.5 * cm / max(len(rows[0]), 1)
+            pdf_table = Table(rows, colWidths=[width] * len(rows[0]), repeatRows=1)
+            pdf_table.setStyle(
+                TableStyle(
+                    [
+                        ("FONTNAME", (0, 0), (-1, -1), font),
+                        ("FONTSIZE", (0, 0), (-1, -1), 7),
+                        ("LEADING", (0, 0), (-1, -1), 9),
+                        ("LINEBELOW", (0, 0), (-1, 0), 0.6, "black"),
+                        ("LINEABOVE", (0, 0), (-1, 0), 0.6, "black"),
+                        ("LINEBELOW", (0, -1), (-1, -1), 0.6, "black"),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ]
+                )
+            )
+            story.append(pdf_table)
+            story.append(Spacer(1, 0.18 * cm))
     pdf.build(story)
 
 
@@ -1124,6 +1165,8 @@ def build_paper(results: dict) -> None:
     for text in [
         "央行货币政策执行报告是季度频率的政策沟通文本。它的市场影响不是单一词语的即时跳跃，而是报告相对历史文本是否释放了新的判断框架、政策优先级和风险提示。本文据此将主检验固定为政策指引文本创新度与股票发布后五日实际波动率，不继续搜索其他主窗口或主变量。",
         "本文的课程重点放在Python数据处理和可复现研究流程：先整理央行报告原文、章节和发布时间，再用词典、语境门控、字符TF-IDF和分组交叉验证检验文本测量，最后构造股票和债券事件窗口。所有中间表、回归表、图形和论文数字由同一套流水线生成，便于复算。",
+        "固定路线的含义是先确定理论上可以解释的问题，再让数据和模型回答该问题。政策指引创新度进入股票波动主检验，是因为它衡量报告相对历史政策文本的新增信息；Student-t EGARCH-X进入日度稳健性，是因为日收益率存在厚尾和条件异方差；跨拟合语调用于债券探索，是因为句子级监督模型可以减少同一文本既训练又解释市场反应的泄漏风险。这些选择在估计前已经锁定，后文只报告结果，不再根据显著性改换窗口、变量或分布。",
+        "本文没有把课设写成单纯的回归练习，而是把数据处理过程本身作为研究对象之一。央行报告的PDF抽取、章节识别、发布时间对齐、交易日映射、文本向量化和事件窗口构造，每一步都会影响最终系数。将这些步骤写入代码并生成可检查的中间表，可以让读者判断结果来自哪一项处理，而不是只看到最后一张回归表。",
         "文献上，姜富伟等[1]提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等[2]强调资产价格反应来自未预期信息；尚玉皇等[3]讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
         "国际研究中，Gurkaynak等[5]区分货币政策行动和声明对资产价格的影响，Tetlock[6]展示文本情绪与市场变量的经验联系；Nelson[7]提出的EGARCH框架为本文日度波动稳健性检验提供了模型基础。本文采用这些方法的直观机制，但不声称完成同等层级的高频识别或资产定价模型。",
     ]:
@@ -1133,6 +1176,8 @@ def build_paper(results: dict) -> None:
     for text in [
         "文本数据来自中国人民银行公开发布的货币政策执行报告[8]。项目保留2006Q1至2026Q1的文本数据库，但正式描述统计和回归只使用2006Q1至2025Q4。这样的边界避免在课程提交时把未来更新样本误纳入正式估计，也使相似度指标的基准期清晰可查。",
         "市场数据包括沪深300日度价格和国债1年、5年、10年收益率。股票反应使用发布后五个交易日实际波动率的对数；债券反应使用收益率曲线斜率、水平和曲率的短窗口变化。事件日以报告发布时间和交易日历对齐，股票与债券分别使用对应市场的下一个有效交易日。",
+        "股票事件面板和日度EGARCH-X面板使用不同层级的政策操作变量。事件级股票OLS控制的是报告附近是否存在政策操作，用来刻画报告发布期的政策环境；日度EGARCH-X控制的是由公开政策操作日期映射得到的真实交易日操作指示，同一交易日多次操作只计一次。两者在经济含义上不同，不能在代码和论文中共用一个变量名。",
+        "事件日对齐采用保守规则：若报告发布时间不在交易时段可直接反映的日期内，股票和债券面板都使用下一个有效交易日。这样处理牺牲了一部分高频精度，但避免在季度课设样本中依赖难以核验的分钟级市场数据。日度稳健性检验保留完整连续收益序列，不把样本裁成只有事件窗口的稀疏日期，因为EGARCH方差递推需要前期冲击和前期条件方差。",
         "早期报告存在政策指引章节标题不完全统一的问题。流水线单独生成章节修复报告，并把2006Q1、2006Q4、2007Q2和2007Q4等早期指引章节纳入可复核表。章节修复只处理文本结构，不根据金融市场结果调整文本内容。",
     ]:
         _add_body_paragraph(doc, text)
@@ -1142,6 +1187,8 @@ def build_paper(results: dict) -> None:
         "本文使用两层文本测量。第一层是可解释词典：中文金融情感词典[4]提供一般正负向金融词，PBC领域词典区分偏宽松和偏收紧表达，并对增长、通胀、风险、汇率、金融稳定和房地产六类主题计算连续关注度。第二层是监督验证：在人工标注句子上使用字符TF-IDF和LinearSVC，不引入大型预训练模型。",
         "语境门控先判断句子是否处于货币政策语境中，再解释鹰鸽方向。这样可以把政策四分类和条件三分类分开：四分类检验dovish、hawkish、neutral和irrelevant；条件三分类只在人工标为政策相关的句子中比较dovish、hawkish和neutral。",
         f"实时重打分的人工验证结果显示，情感三分类准确率为{_fmt(numbers['sentiment_acc'])}，Macro-F1为{_fmt(numbers['sentiment_f1'])}；政策四分类准确率为{_fmt(numbers['stance_acc'])}，Macro-F1为{_fmt(numbers['stance_f1'])}；条件三分类准确率为{_fmt(numbers['direction_acc'])}，Macro-F1为{_fmt(numbers['direction_f1'])}；主题分类准确率为{_fmt(numbers['topic_acc'])}，Macro-F1为{_fmt(numbers['topic_f1'])}。",
+        "监督验证采用按报告分组的交叉验证，而不是随机句子切分。央行报告中有大量模板化表达，如果相似句子同时出现在训练集和测试集，模型看似准确，实则只是在识别固定句式。按报告分组以后，测试折中的句子来自未见过的报告，指标更接近未来季度应用场景。近重复文本合并折号进一步降低公式化表述造成的泄漏。",
+        "学习曲线的作用不是证明当前人工标签已经充分，而是说明继续增加标签的边际收益和薄弱类别。若训练比例提高后Macro-F1仍然波动，说明类别稀疏和句式相似性仍在限制泛化；若准确率上升但少数类别召回率低，说明模型主要学到了多数类。本文据此把人工验证定位为测量可靠性检查，而不是用监督模型替代全部文本指标。",
         "分组交叉验证同时按报告和近重复句子合并折号，防止同一报告或高度公式化表述跨折泄漏。学习曲线表明，240句人工样本已经足以暴露词典和轻量监督模型的主要误差来源，但对少数类别的稳定识别仍然受样本量限制。后续若增加标注，应优先补充hawkish、negative和房地产主题句，而不是为追求显著性改动已有标签。",
     ]:
         _add_body_paragraph(doc, text)
@@ -1159,6 +1206,7 @@ def build_paper(results: dict) -> None:
     _add_level1_heading(doc, "四、政策指引创新度与连续主题关注")
     for text in [
         "创新度的计算使用扩展窗口TF-IDF：第t期政策指引只使用第1期至第t期已经可见的文本拟合词汇和逆文档频率，再计算本期与上一期政策指引的余弦相似度，并以一减相似度定义创新度。2006Q1作为基准期不进入创新度回归。",
+        "扩展窗口的处理对本研究很关键。若使用全样本TF-IDF，后期报告中的词汇和权重会反向影响早期报告的向量表示，投资者在早期不可能观察到这些信息。扩展窗口虽然牺牲了一部分跨期可比性，却更符合发布时点的信息集，也使2006Q2以后每一期创新度都可以追溯到当时已经公开的文本。",
         "连续主题关注度不是分类器输出，而是每类主题词在报告章节中的标准化出现强度。增长、通胀、风险、汇率、金融稳定和房地产分别保留为描述性变量，用于解释政策沟通的经济背景。主题关注度不作为核心显著性检验的替代品。",
         "这一设计有两个好处：其一，创新度只依赖发布时点之前的信息，避免未来文本进入历史向量空间；其二，主题关注度把政策文本中的经济语境显式记录下来，使股票波动和债券曲线结果可以回到经济含义而不是停留在黑箱文本分数。",
     ]:
@@ -1168,6 +1216,8 @@ def build_paper(results: dict) -> None:
     for text in [
         "股票主模型以发布后五个交易日实际波动率的对数为被解释变量，解释变量包括政策指引创新度、发布前20日波动率、附近政策操作、2019年后虚拟变量和创新度与2019年后的交互项。模型不加入线性时间趋势；趋势项只进入稳健性表。",
         f"估计结果显示，政策指引创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}；2019年交互项为{_fmt(numbers['stock_interaction'])}，p值为{_fmt(numbers['stock_interaction_p'])}；2019年后总效应为{_fmt(numbers['stock_total'])}，联合检验p值为{_fmt(numbers['stock_total_p'])}。一单位创新度对应的实际波动率变化约为{_fmt(numbers['stock_effect_percent'])}%。",
+        "主回归采用HC3稳健标准误，是因为季度事件样本数量有限，少数高波动事件可能对普通最小二乘标准误产生较大影响。发布前20日波动率控制市场原有不确定性，附近政策操作控制报告发布前后的政策环境，2019年后交互项用于刻画政策框架和市场结构变化。该设定保留不显著的交互和总效应，避免把分样本估计变成事后筛选。",
+        "实际波动率使用五个交易日窗口，是在季度报告发布频率和市场吸收速度之间的折中。窗口过短可能只捕捉发布当日流动性冲击，窗口过长则更容易混入其他宏观新闻。本文把五日窗口作为核心主检验，并把其他窗口限制在辅助表中，目的不是寻找最显著结果，而是让主结论围绕一个事先确定的市场反应口径展开。",
         "上述结果应解释为短窗口条件相关关系。季度报告发布前后仍可能伴随宏观数据、全球风险偏好和其他政策操作，因此本文不把事件研究回归写成强因果识别。方向一致只有在相应统计检验支持时才称为显著；若p值较大，只讨论经济含义和不确定性。",
     ]:
         _add_body_paragraph(doc, text)
@@ -1191,7 +1241,10 @@ def build_paper(results: dict) -> None:
 
     _add_level1_heading(doc, "六、Student-t EGARCH-X稳健性与市场功效")
     for text in [
-        f"日度高级稳健性使用完整连续交易日序列上的Student-t EGARCH-X。正式D0规格联合估计均值、方差和事件系数；D+1、D0+D1以及置换检验使用固定干扰参数条件似然，只作为诊断。主结果方法为{numbers['egarch_status']}，收敛标记为{numbers['egarch_converged']}，样本数为{numbers['egarch_n']}；创新度方差项系数为{_fmt(numbers['egarch_novelty'])}，报告日项系数为{_fmt(numbers['egarch_report_day'])}，条件置换诊断p值为{_fmt(numbers['egarch_perm_p'])}。",
+        f"日度高级稳健性使用完整连续交易日序列上的Student-t EGARCH-X。正式D0规格联合估计均值、方差和事件系数；D+1、D0+D1以及置换检验使用固定干扰参数条件似然，只作为诊断。样本期为{numbers['egarch_date_start']}至{numbers['egarch_date_end']}，共{numbers['egarch_n']}个交易日、{numbers['egarch_report_events']}个报告日、{numbers['egarch_novelty_events']}个创新度事件和{numbers['egarch_policy_action_days']}个真实政策操作日。主结果方法为{numbers['egarch_status']}，收敛标记为{numbers['egarch_converged']}；标准化创新度方差项系数为{_fmt(numbers['egarch_novelty'])}，对应条件方差变化约{_fmt(numbers['egarch_var_change_pct'])}%，条件波动率变化约{_fmt(numbers['egarch_vol_change_pct'])}%，正式联合LR p值为{_fmt(numbers['egarch_formal_lr_p'])}，条件置换诊断p值为{_fmt(numbers['egarch_perm_p'])}。",
+        "这里的日度样本边界由锁定报告事件决定，而不是直接使用股票行情文件的全部日期。起点是2006年以后第一个可用交易日，终点是2025Q4报告实际事件日之后的第一个交易日，从而保留D+1敏感性所需的最后一个交易日，同时排除最后报告D+1之后的行情。第一份报告没有历史创新度，但仍然是报告日，因此进入报告日计数而不进入创新度事件计数。",
+        "正式推断不使用优化器给出的逆Hessian近似p值。该近似在边界约束、厚尾分布和稀疏事件变量下容易不稳定，因此论文只把它保留为数值优化诊断。正式D0检验通过重新联合优化受限模型实现，其中标准化创新度系数被设为零，其余均值、方差和控制变量参数重新估计；非受限与受限模型的似然差给出LR统计量和p值。",
+        "D1和D0+D1诊断回答的是日期敏感性，而不是新的主模型。D1把创新度移动到报告后一日，但报告日本身仍保留在D0；D0+D1同时放入当日和后一日创新度，并报告联合LR和两项系数之和。这样写可以检查市场反应是否滞后，同时避免把两个高度相近的日期系数拆开过度解释。",
         f"市场功效分析采用保留经验设计矩阵的wild residual bootstrap。最大模拟样本量为{numbers['power_max_n']}时，检验功效约为{_fmt(numbers['power_max'])}，80%功效对应的最小可检测效应约为{_fmt(numbers['power_mde'])}。这说明课程样本的显著性判断受样本规模限制，不显著结果不能简单等同于经济效应不存在。",
         "EGARCH-X和功效分析都属于稳健性和诊断材料。本文不因为EGARCH-X方向或功效结果改变核心变量、事件窗口或分布设定，也不据此修改人工标签。",
     ]:
@@ -1202,6 +1255,8 @@ def build_paper(results: dict) -> None:
     for text in [
         f"债券部分以未预期政策语调解释国债收益率曲线斜率变化。主模型中未预期语调系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}；2019年交互项为{_fmt(numbers['curve_interaction'])}，2019年后总效应为{_fmt(numbers['curve_total'])}，总效应p值为{_fmt(numbers['curve_total_p'])}。",
         f"跨拟合政策语调使用人工标注句子训练字符TF-IDF与LinearSVC，并在当前折外预测报告的政策指引句子。政策相关句均值聚合的探索系数为{_fmt(numbers['cross_coef'])}，p值为{_fmt(numbers['cross_p'])}，2019年后总效应为{_fmt(numbers['cross_total'])}，总效应p值为{_fmt(numbers['cross_total_p'])}。这些结果只作为探索性扩展，不替代锁定的债券主模型。",
+        "跨拟合的作用是把文本测量验证和金融回归连接起来。每个折外预测只使用其他报告中的人工标签训练模型，再把预测聚合到本报告层面，降低同一报告句子同时参与训练和解释市场反应的风险。由于人工标签规模有限，债券结果只作为探索性证据；若方向一致但p值较大，本文只说明经济含义上的一致性，不写成统计显著。",
+        "收益率曲线斜率还受到期限溢价和增长预期共同影响，同一段央行表述可能同时改变短端政策预期和长端宏观判断。因此，本文没有把某一个期限点的变化单独作为主结论，而是同时保留水平、斜率和曲率表，重点讨论斜率规格中未预期语调和2019年后交互项的方向、大小和不确定性。",
         "收益率曲线结果的解释需要谨慎。短端和长端收益率同时受到公开市场操作、宏观数据、风险偏好和流动性条件影响，央行报告文本只是其中一类信息来源。本文保留不显著结果，并把它作为市场吸收央行沟通信息边界的证据之一。",
     ]:
         _add_body_paragraph(doc, text)
@@ -1227,6 +1282,12 @@ def build_paper(results: dict) -> None:
     for text in [
         "项目的公开入口为README.md、configs/project.yml和run_all.py。正式流水线先验证分析计划哈希，再生成文本特征、事件面板、回归表、图形、Notebook、论文和提交目录。最终提交目录排除内部提示材料、历史归档、缓存文件和受许可限制的原始材料。",
         "数字一致性审计记录每个论文核心数字对应的结果文件；引用一致性审计检查正文引用与文末参考文献的一一对应。人工标签文件保留原始哈希，不在回归后按显著性修改。最终解释遵守三个边界：不声称完全复现既有高级模型；不把方向一致写成显著；不把短窗口相关关系写成完整因果识别。",
+        "可复现性还体现在缓存校验上。EGARCH-X锁定结果记录收益率数据、事件面板、政策操作文件、模型代码和规格说明的哈希；条件诊断缓存记录锁定模型、日度设计矩阵、置换次数和随机种子。任何一项变化都会触发缓存失效，迫使研究者重新生成相应结果。这样做可以防止代码修改后继续使用过期统计输出。",
+        "最终提交目录只保留教师复核所需材料：正式代码、配置、处理后数据、结果表、图形、Notebook、论文和提交清单。原始数据、内部提示材料、历史归档和临时缓存不进入提交包。这样的划分既保护数据来源和人工标签，又让课程复核者可以在不阅读开发过程材料的情况下复现正式结论。",
+        "复核时可以按三条线索检查本文。第一，数据线索从来源登记表进入处理后文本、事件日历和市场面板；第二，模型线索从固定分析计划进入股票、债券和日度波动率结果；第三，写作线索从结果文件进入数字审计、引用审计和最终论文。三条线索互相对应，能发现样本边界、变量命名或结果口径是否前后一致。",
+        "本文最终保留显著与不显著两类证据。股票五日实际波动率结果提供核心经验发现，日度EGARCH-X说明该发现没有被简单的条件异方差设定否定，债券探索则展示文本语调进入期限结构时的不确定性。这样的写法比单纯追求一个显著系数更适合课程研究，因为它展示了从测量、建模到审计的完整判断过程。",
+        "在结果解释上，本文区分三种说法：统计显著、方向一致和经济上值得关注。只有p值达到预设标准时才使用统计显著；当系数方向符合机制但不显著时，只写作方向一致；当估计量较大但不确定性也较大时，强调样本量和检验功效限制。这个区分贯穿股票、债券和日度波动率三部分，避免把复杂结果压缩成单一结论。课程研究的价值也正在于此：它让读者看到同一批公开数据在不同模型层级下给出的证据强弱，而不是只呈现最有利的一组数字。",
+        "从执行层面看，项目把每一个关键选择都落在可复核文件上。正式样本边界由分析计划控制；章节修复由诊断表记录；人工标签保留填报文件和哈希；股票和债券事件面板分别写出交易日对齐后的结果；日度EGARCH-X同时保存非受限模型、受限模型、条件诊断和基准检查。论文中的数字只从这些结果文件读取，避免手工改写时产生不一致。若教师或读者希望复查某个结论，可以先找到论文数字审计表，再回到相应的结果表和生成代码，逐步确认数据来源、变量定义和估计口径。",
         "本文的局限包括：季度报告样本最多80期，人工标注样本为240句，少数类别仍然稀疏；PDF抽取和章节识别虽经过修复，但早期报告版式差异会增加文本噪声；市场反应窗口无法完全隔离同期宏观消息。这些限制决定了结果应被理解为透明、可复算的课程研究证据，而不是完整的央行沟通定价模型。",
         "尽管存在这些限制，本文的主要贡献在于把真实公开数据、固定分析计划、轻量文本测量、分组交叉验证和金融事件研究连成一条可复现链条。对于课程项目而言，研究质量首先来自数据边界和计算过程的透明，然后才是单个系数的大小。",
     ]:

@@ -71,7 +71,7 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell("from src.monetary_policy.analysis.robustness import similarity_robustness\nsimilarity_robustness(stock_panel)"),
         nbf.v4.new_markdown_cell("## 24. 图表源数据"),
         nbf.v4.new_code_cell("sorted([p.name for p in (ROOT / 'output/figures').glob('figure*.png')])"),
-        nbf.v4.new_markdown_cell("## 25. 结论和局限\n\n文本创新度、股票收益和收益率曲线结果均由上述模块现场计算。解释时只讨论相关性，不把事件研究回归写成因果识别。\n\n### 文本验证结论\n\n人工标注已完成（标注人：罗允绩，240 句，涵盖政策指引和宏观章节）。验证结论如下：\n\n- **金融情感**：自动词典的句子级准确率为 26.25%，主要问题是过度预测 positive（157/184 人工标注 neutral 的句子被自动分类为 positive）。原因在于姜富伟等和 Du et al. 的中文金融情感词典面向文档级金融市场分析设计，直接用于句子级政策文本时会产生系统性正向偏误。文档级聚合后的标准化指标在回归中更为稳健。\n- **政策倾向**：自动词典的句子级准确率为 14.17%，hawkish 召回率为 0%。PBC 领域鹰鸽词典（v2 已扩展至 35+33 词）在句子级仍存在严重覆盖不足，原因是政策倾向常通过隐含、间接表达传递。文档级聚合可在一定程度上缓解这一问题。\n- **主题分类**：v2 主题词典扩展后准确率从 38.33% 提升至 58.75%，growth 召回率从 35.1% 提升至 62.3%，financial_stability 召回率从 0% 提升至 36.8%。但 risk 和 inflation 的召回率仍偏低。\n\n词典修订版本已保存在 `data/dictionaries/lexicon_versions/` 目录下，含 v1→v2 变更报告。"),
+        nbf.v4.new_markdown_cell("## 25. 结论和局限\n\n文本创新度、股票收益和收益率曲线结果均由上述模块现场计算。解释时只讨论相关性，不把事件研究回归写成因果识别。\n\n### 文本验证结论\n\n人工标注已完成（标注人：罗允绩，240 句，涵盖政策指引和宏观章节）。本Notebook从正式结果文件读取初始词典、语境门控和字符TF-IDF+LinearSVC的Accuracy、Macro-F1及核心类别Recall，并区分政策四分类与条件三分类。初始词典结果只用于展示领域迁移问题；语境门控作为可解释基准；LinearSVC作为监督测量验证。主题硬分类降级为辅助验证，连续主题关注度用于正式描述。"),
     ]
     nb = nbf.v4.new_notebook()
     nb["metadata"] = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}}
@@ -182,10 +182,13 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell(
             "egarch_x = json.loads((ROOT / 'output/results/daily_egarch_x_results.json').read_text(encoding='utf-8'))\n"
             "print('formal D0 full joint MLE')\n"
-            "print({k: egarch_x['main_model'].get(k) for k in ['method','sample_scope','n_daily_observations','n_report_events','converged','runtime_seconds']})\n"
-            "print('parameters:', egarch_x['main_model'].get('parameters'))\n"
+            "main = egarch_x['main_model']\n"
+            "print({k: main.get(k) for k in ['method','sample_scope','date_start','date_end','n_daily_observations','n_report_events','n_novelty_events','n_policy_action_days','converged','runtime_seconds']})\n"
+            "print('parameters:', main.get('parameters'))\n"
+            "print('formal LR:', {k: main.get(k) for k in ['formal_lr_statistic','formal_lr_df','formal_lr_p_value','conditional_variance_change_pct_per_1sd_novelty','conditional_volatility_change_pct_per_1sd_novelty']})\n"
             "print('fixed-nuisance diagnostics')\n"
             "display(pd.DataFrame(egarch_x['sensitivity']))\n"
+            "print('D0_D1 collinearity:', egarch_x['conditional_model'].get('D0_D1_collinearity_diagnostics'))\n"
             "print('comparison:', egarch_x.get('comparison'))"
         ),
         nbf.v4.new_markdown_cell("## 9. 市场功效分析"),

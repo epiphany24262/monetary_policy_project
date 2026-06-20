@@ -11,9 +11,9 @@ Normal distribution provided as sensitivity check only.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +22,8 @@ from scipy.optimize import minimize
 from scipy.special import gammaln
 from scipy import stats as scipy_stats
 
-from ..paths import OUTPUT_DIR
+from ..paths import OUTPUT_DIR, ROOT
+from ..sample import is_in_formal_sample, sample_bounds
 
 
 def _student_t_loglik(params, returns, X_exog):
@@ -306,6 +307,7 @@ def write_egarch_x_results(path: Path, result: dict, sensitivity: pd.DataFrame) 
 
 MODEL_VERSION = "daily_egarch_x_v2_full_sequence_fixed_nuisance"
 LOCKED_MODEL_VERSION = "daily_egarch_x_locked_full_joint_mle_v1"
+CONDITIONAL_CACHE_VERSION = "daily_egarch_x_conditional_diagnostics_v1"
 
 
 def _series_hash(*series: pd.Series) -> str:
@@ -322,7 +324,7 @@ def _dict_hash(values: dict) -> str:
 
 def validate_daily_egarch_dataset(daily: pd.DataFrame) -> dict:
     """Validate that EGARCH input is a full ordered daily sequence."""
-    required = {"date", "return", "report_day", "novelty", "policy_action"}
+    required = {"date", "return", "report_day", "novelty_z", "novelty_available", "policy_action_day", "report_action_nearby_core"}
     missing = required - set(daily.columns)
     if missing:
         raise ValueError(f"Missing daily EGARCH columns: {sorted(missing)}")
@@ -331,14 +333,19 @@ def validate_daily_egarch_dataset(daily: pd.DataFrame) -> dict:
     assert dates.is_unique, "daily EGARCH dates must be unique"
     assert len(daily) >= 4500, "daily EGARCH input must keep the full daily return sequence"
     report_events = int(pd.to_numeric(daily["report_day"]).fillna(0).sum())
-    novelty_events = int(pd.to_numeric(daily["novelty"]).fillna(0).ne(0).sum())
-    assert report_events in range(75, 85), f"unexpected report event count: {report_events}"
-    assert novelty_events in range(75, 85), f"unexpected novelty event count: {novelty_events}"
+    novelty_events = int(pd.to_numeric(daily["novelty_available"]).fillna(0).sum())
+    assert report_events == 80, f"unexpected report event count: {report_events}"
+    assert novelty_events == 79, f"unexpected novelty availability count: {novelty_events}"
     assert len(daily) == int(daily["return"].notna().sum()), "model input rows must equal cleaned full return rows"
+    policy_action_days = int(pd.to_numeric(daily["policy_action_day"]).fillna(0).sum())
+    report_action_days = int(pd.to_numeric(daily["report_action_nearby_core"]).fillna(0).sum())
+    assert policy_action_days > report_action_days, "daily policy action days must exceed report-level nearby action days"
     return {
         "n_daily_observations": int(len(daily)),
         "n_report_events": report_events,
         "n_novelty_events": novelty_events,
+        "n_policy_action_days": policy_action_days,
+        "n_report_action_nearby_days": report_action_days,
         "date_start": str(dates.min().date()),
         "date_end": str(dates.max().date()),
         "uses_full_continuous_daily_sequence": True,
@@ -349,20 +356,78 @@ def validate_daily_egarch_dataset(daily: pd.DataFrame) -> dict:
 def egarch_cache_metadata(
     return_data_sha256: str,
     event_panel_sha256: str,
+    policy_operation_sha256: str = "",
+    novelty_mean: float | None = None,
+    novelty_std: float | None = None,
     model_version: str = MODEL_VERSION,
     distribution: str = "student_t",
     mean_equation: str = "AR(1)",
     variance_equation: str = "EGARCH-X(1,1)",
-    code_version: str = "workspace",
+    code_version: str | None = None,
 ) -> dict:
+    start, end = sample_bounds()
+    code_version_value = code_version or model_code_hash()
+    novelty_mean_value = round(float(novelty_mean), 12) if novelty_mean is not None else None
+    novelty_std_value = round(float(novelty_std), 12) if novelty_std is not None else None
+    spec_payload = {
+        "formal_sample_start": start,
+        "formal_sample_end": end,
+        "distribution": distribution,
+        "mean_equation": mean_equation,
+        "variance_equation": variance_equation,
+        "variables": ["report_day", "guidance_novelty_z", "policy_action_day"],
+        "random_seed": 2026,
+        "bounds": "documented_in_egarch_x.py",
+        "novelty_mean": novelty_mean_value,
+        "novelty_std": novelty_std_value,
+    }
     return {
         "return_data_sha256": return_data_sha256,
         "event_panel_sha256": event_panel_sha256,
+        "policy_operation_sha256": policy_operation_sha256,
+        "model_code_sha256": model_code_hash(),
+        "egarch_code_sha256": file_sha256(ROOT / "src/monetary_policy/analysis/egarch_x.py"),
+        "pipeline_code_sha256": file_sha256(ROOT / "src/monetary_policy/pipeline.py"),
+        "model_spec_sha256": _dict_hash(spec_payload),
+        "formal_sample_start": start,
+        "formal_sample_end": end,
+        "novelty_mean": novelty_mean_value,
+        "novelty_std": novelty_std_value,
         "model_version": model_version,
         "distribution": distribution,
         "mean_equation": mean_equation,
         "variance_equation": variance_equation,
-        "code_version": code_version,
+        "code_version": code_version_value,
+    }
+
+
+def conditional_cache_metadata(
+    hashes: dict,
+    nuisance_parameter_source: str,
+    n_perm: int,
+    random_seed: int,
+    locked_model_sha256: str | None = None,
+) -> dict:
+    source_path = Path(nuisance_parameter_source)
+    if not source_path.is_absolute():
+        source_path = ROOT / nuisance_parameter_source
+    locked_hash = locked_model_sha256 or (file_sha256(source_path) if source_path.exists() else _dict_hash({"source": nuisance_parameter_source}))
+    spec_payload = {
+        "version": CONDITIONAL_CACHE_VERSION,
+        "D0": ["report_day_d0", "novelty_d0", "policy_action_day"],
+        "D1": ["report_day_d0", "novelty_d1", "policy_action_day"],
+        "D0_D1": ["report_day_d0", "novelty_d0", "novelty_d1", "policy_action_day"],
+        "restricted_coefficients": "all optimized novelty coefficients set to zero within the same design matrix",
+        "distribution": "student_t",
+    }
+    return {
+        "cache_version": CONDITIONAL_CACHE_VERSION,
+        "locked_model_sha256": locked_hash,
+        "daily_dataset_sha256": hashes.get("daily_dataset_sha256"),
+        "conditional_code_sha256": file_sha256(ROOT / "src/monetary_policy/analysis/egarch_x.py"),
+        "n_perm": int(n_perm),
+        "random_seed": int(random_seed),
+        "D0_D1_specification": _dict_hash(spec_payload),
     }
 
 
@@ -380,8 +445,20 @@ def _cache_status(path: Path, expected: dict) -> tuple[str, str, dict | None]:
 def pandas_frame_sha256(df: pd.DataFrame, cols: list[str] | None = None) -> str:
     view = df[cols].copy() if cols else df.copy()
     view = view.reset_index(drop=True)
+    for col in view.columns:
+        if "date" in str(col).lower():
+            parsed = pd.to_datetime(view[col], errors="coerce")
+            if parsed.notna().any():
+                view[col] = parsed.dt.strftime("%Y-%m-%d").fillna(view[col].astype(str))
+    float_cols = view.select_dtypes(include=["floating"]).columns
+    for col in float_cols:
+        view[col] = view[col].round(12)
     payload = pd.util.hash_pandas_object(view, index=True).values.tobytes()
     return hashlib.sha256(payload).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def code_version() -> str:
@@ -396,41 +473,120 @@ def code_version() -> str:
     return "workspace"
 
 
+def model_code_hash() -> str:
+    h = hashlib.sha256()
+    for rel in ["src/monetary_policy/analysis/egarch_x.py", "src/monetary_policy/pipeline.py", "configs/project.yml"]:
+        path = ROOT / rel
+        if path.exists():
+            h.update(path.read_bytes())
+    return h.hexdigest()
+
+
 def build_daily_egarch_dataset(stock: pd.DataFrame, events: pd.DataFrame, stock_panel: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Build full continuous daily EGARCH-X input from stock returns and events."""
+    start_period, end_period = sample_bounds()
+    formal_panel = stock_panel[stock_panel["report_period"].map(is_in_formal_sample)].copy()
+    formal_panel = formal_panel.sort_values("equity_event_date").reset_index(drop=True)
+    if len(formal_panel) != 80:
+        raise ValueError(f"Expected 80 formal report events, got {len(formal_panel)}")
     event_cols = ["event_id", "equity_event_date", "action_nearby"]
-    if "action_nearby_core" in events.columns:
-        event_cols = ["event_id", "equity_event_date", "action_nearby_core"]
     events_small = events[event_cols].copy()
-    action_col = "action_nearby_core" if "action_nearby_core" in events_small.columns else "action_nearby"
-    events_small = events_small.rename(columns={action_col: "action_nearby_core"})
+    events_small = events_small.rename(columns={"action_nearby": "event_action_nearby_core"})
     merged_events = events_small.merge(
-        stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]].rename(columns={"action_nearby_core": "panel_action_nearby_core"}),
+        formal_panel[["event_id", "report_period", "guidance_novelty", "action_nearby_core"]],
         on="event_id",
         how="inner",
-    )
-    merged_events["action_nearby_core"] = merged_events["panel_action_nearby_core"].fillna(merged_events["action_nearby_core"]).fillna(0)
-    daily = stock[["date", "simple_return"]].dropna(subset=["simple_return"]).copy()
+    ).sort_values("equity_event_date")
+
+    returns_full = stock[["date", "simple_return"]].dropna(subset=["simple_return"]).copy()
+    returns_full = returns_full.sort_values("date").reset_index(drop=True)
+    trading_dates = pd.to_datetime(returns_full["date"]).reset_index(drop=True)
+    daily_start = trading_dates[trading_dates >= pd.Timestamp("2006-01-01")].iloc[0]
+    report_dates = pd.to_datetime(merged_events["equity_event_date"]).reset_index(drop=True)
+    first_report_event_date = report_dates.iloc[0]
+    last_report_event_date = report_dates.iloc[-1]
+    try:
+        last_idx = trading_dates[trading_dates == last_report_event_date].index[0]
+    except IndexError as exc:
+        raise ValueError(f"Last formal report event date is not in trading calendar: {last_report_event_date}") from exc
+    if last_idx + 1 >= len(trading_dates):
+        raise ValueError("No D+1 trading day after the last locked report event")
+    last_d1_date = trading_dates.iloc[last_idx + 1]
+    daily = returns_full[(trading_dates >= daily_start) & (trading_dates <= last_d1_date)].copy()
     daily = daily.sort_values("date").reset_index(drop=True)
     daily["report_day"] = 0.0
-    daily["novelty"] = 0.0
-    daily["policy_action"] = 0.0
-    novelty_map = {}
-    action_map = {}
-    for _, row in merged_events.dropna(subset=["guidance_novelty"]).iterrows():
+    daily["novelty_available"] = 0.0
+    daily["guidance_novelty_raw"] = 0.0
+    daily["novelty_z"] = 0.0
+    daily["report_action_nearby_core"] = 0.0
+    novelty_events = merged_events.dropna(subset=["guidance_novelty"]).copy()
+    if len(novelty_events) != 79:
+        raise ValueError(f"Expected 79 novelty-available events, got {len(novelty_events)}")
+    novelty_mean = float(novelty_events["guidance_novelty"].mean())
+    novelty_std = float(novelty_events["guidance_novelty"].std(ddof=1))
+    if not np.isfinite(novelty_std) or novelty_std <= 0:
+        raise ValueError("Invalid guidance novelty standard deviation")
+    report_map = {}
+    novelty_raw_map = {}
+    novelty_z_map = {}
+    novelty_available_map = {}
+    report_action_map = {}
+    for _, row in merged_events.iterrows():
         date = pd.to_datetime(row["equity_event_date"]).date()
-        novelty_map[date] = float(row["guidance_novelty"])
-        action_map[date] = float(row["action_nearby_core"])
+        report_map[date] = 1.0
+        report_action_map[date] = float(row["action_nearby_core"])
+        if pd.notna(row["guidance_novelty"]):
+            raw = float(row["guidance_novelty"])
+            novelty_raw_map[date] = raw
+            novelty_z_map[date] = (raw - novelty_mean) / novelty_std
+            novelty_available_map[date] = 1.0
     daily_dates = pd.to_datetime(daily["date"]).dt.date
-    daily["report_day"] = daily_dates.isin(set(novelty_map)).astype(float)
-    daily["novelty"] = daily_dates.map(novelty_map).fillna(0.0).astype(float)
-    daily["policy_action"] = daily_dates.map(action_map).fillna(0.0).astype(float)
+    daily["report_day"] = daily_dates.map(report_map).fillna(0.0).astype(float)
+    daily["novelty_available"] = daily_dates.map(novelty_available_map).fillna(0.0).astype(float)
+    daily["guidance_novelty_raw"] = daily_dates.map(novelty_raw_map).fillna(0.0).astype(float)
+    daily["novelty_z"] = daily_dates.map(novelty_z_map).fillna(0.0).astype(float)
+    daily["report_action_nearby_core"] = daily_dates.map(report_action_map).fillna(0.0).astype(float)
+
+    policy_path = ROOT / "data/processed/policy_operations.csv"
+    policy_ops = pd.read_csv(policy_path, parse_dates=["date", "effective_date"]) if policy_path.exists() else pd.DataFrame()
+    daily["policy_action_day"] = 0.0
+    operation_type_counts = {}
+    mapped_dates = set()
+    if not policy_ops.empty:
+        op_dates = policy_ops["effective_date"].fillna(policy_ops["date"])
+        operation_type_counts = policy_ops["operation_type"].value_counts().to_dict()
+        for op_date in pd.to_datetime(op_dates):
+            candidates = pd.to_datetime(daily["date"])
+            candidates = candidates[candidates >= op_date]
+            if len(candidates) == 0:
+                continue
+            mapped_dates.add(candidates.iloc[0].date())
+        daily["policy_action_day"] = daily_dates.isin(mapped_dates).astype(float)
     daily = daily.rename(columns={"simple_return": "return"})
     checks = validate_daily_egarch_dataset(daily)
     hashes = {
         **checks,
+        "formal_report_period_start": start_period,
+        "formal_report_period_end": end_period,
+        "daily_estimation_start": str(daily_start.date()),
+        "daily_estimation_end": str(last_d1_date.date()),
+        "first_report_event_date": str(first_report_event_date.date()),
+        "last_report_event_date": str(last_report_event_date.date()),
+        "last_d1_date": str(last_d1_date.date()),
+        "novelty_raw_mean": novelty_mean,
+        "novelty_raw_std": novelty_std,
+        "novelty_standardization_scope": "79 report events",
+        "mapped_unique_policy_action_trading_days": int(len(mapped_dates)),
+        "policy_operation_source": str(policy_path.relative_to(ROOT)),
+        "policy_operation_mapping_rule": "effective_date mapped to the next available CSI300 trading day; multiple operations on the same trading day count once",
+        "policy_operation_type_counts": {str(k): int(v) for k, v in operation_type_counts.items()},
         "return_data_sha256": pandas_frame_sha256(daily, ["date", "return"]),
-        "event_panel_sha256": pandas_frame_sha256(stock_panel, ["event_id", "guidance_novelty", "action_nearby_core"]),
+        "event_panel_sha256": pandas_frame_sha256(formal_panel, ["event_id", "report_period", "equity_event_date", "guidance_novelty", "action_nearby_core"]),
+        "policy_operation_sha256": file_sha256(policy_path) if policy_path.exists() else "",
+        "daily_dataset_sha256": pandas_frame_sha256(
+            daily,
+            ["date", "return", "report_day", "novelty_available", "guidance_novelty_raw", "novelty_z", "policy_action_day", "report_action_nearby_core"],
+        ),
     }
     return daily, hashes
 
@@ -588,6 +744,9 @@ def run_locked_full_joint_mle(
     expected_meta = egarch_cache_metadata(
         hashes["return_data_sha256"],
         hashes["event_panel_sha256"],
+        policy_operation_sha256=hashes.get("policy_operation_sha256", ""),
+        novelty_mean=hashes.get("novelty_raw_mean"),
+        novelty_std=hashes.get("novelty_raw_std"),
         model_version=LOCKED_MODEL_VERSION,
         code_version=code_version(),
     )
@@ -604,10 +763,13 @@ def run_locked_full_joint_mle(
 
     validate_daily_egarch_dataset(daily)
     y_pct = pd.Series(daily["return"].astype(float).to_numpy() * 100, index=pd.to_datetime(daily["date"]))
-    X = daily[["report_day", "novelty", "policy_action"]].astype(float).to_numpy()
+    X = daily[["report_day", "novelty_z", "policy_action_day"]].astype(float).to_numpy()
     baseline_meta = egarch_cache_metadata(
         hashes["return_data_sha256"],
         hashes["event_panel_sha256"],
+        policy_operation_sha256=hashes.get("policy_operation_sha256", ""),
+        novelty_mean=hashes.get("novelty_raw_mean"),
+        novelty_std=hashes.get("novelty_raw_std"),
         model_version=MODEL_VERSION,
         variance_equation="EGARCH(1,1)",
         code_version=code_version(),
@@ -656,26 +818,73 @@ def run_locked_full_joint_mle(
     runtime = time.perf_counter() - t0
     if best is None:
         raise RuntimeError("Full joint EGARCH-X MLE failed for all starts")
-    names = ["mu_c", "ar1", "omega", "alpha", "gamma", "beta", "report_day", "novelty", "policy_action", "nu"]
+    names = ["mu_c", "ar1", "omega", "alpha", "gamma", "beta", "report_day", "novelty_z", "policy_action_day", "nu"]
     n_params = len(names)
     se, pvals = _approx_se_pvalues(best, n_params)
+    restriction_idx = names.index("novelty_z")
+    free_mask = np.ones(n_params, dtype=bool)
+    free_mask[restriction_idx] = False
+
+    def restricted_objective(theta: np.ndarray) -> float:
+        full = np.zeros(n_params, dtype=float)
+        full[free_mask] = theta
+        full[restriction_idx] = 0.0
+        return float(_student_t_loglik(full, y, X))
+
+    restricted_start = np.asarray(best.x, dtype=float)[free_mask]
+    restricted_bounds = [bounds[i] for i in range(n_params) if free_mask[i]]
+    restricted_result = minimize(
+        restricted_objective,
+        restricted_start,
+        method="L-BFGS-B",
+        bounds=restricted_bounds,
+        options={"maxiter": 700, "ftol": 1e-8},
+    )
+    unrestricted_loglik = float(-best.fun)
+    restricted_loglik = float(-restricted_result.fun)
+    raw_formal_lr = 2 * (unrestricted_loglik - restricted_loglik)
+    formal_lr = float(max(raw_formal_lr, 0.0)) if np.isfinite(raw_formal_lr) else float("nan")
+    formal_lr_p = float(scipy_stats.chi2.sf(formal_lr, 1)) if np.isfinite(formal_lr) else float("nan")
     sigma2, eps = _joint_sigma2(best.x, y, X)
     std_resid = eps / np.sqrt(np.maximum(sigma2, 1e-12))
     params = {name: float(best.x[i]) for i, name in enumerate(names)}
     stderr = {name: se[i] for i, name in enumerate(names)}
     pvalues = {name: pvals[i] for i, name in enumerate(names)}
+    novelty_lambda = params["novelty_z"]
+    restricted_params = {}
+    full_restricted = np.zeros(n_params, dtype=float)
+    full_restricted[free_mask] = restricted_result.x
+    full_restricted[restriction_idx] = 0.0
+    for i, name in enumerate(names):
+        restricted_params[name] = float(full_restricted[i])
     out = {
         "method": "full_joint_mle",
+        "model_role": "advanced_daily_robustness_formal_D0",
         "sample_scope": "full_continuous_daily_sequence",
         "uses_full_continuous_daily_sequence": True,
         "dropped_non_event_days": False,
         "distribution": "student_t",
+        "variance_equation": "log_sigma2_t = omega + alpha(|z_t-1|-E|z|) + gamma*z_t-1 + beta*log_sigma2_t-1 + report_day + novelty_z + policy_action_day",
         "n_daily_observations": int(len(daily)),
         "n_report_events": int(daily["report_day"].sum()),
+        "n_novelty_events": int(daily["novelty_available"].sum()),
+        "n_policy_action_days": int(daily["policy_action_day"].sum()),
         "date_start": str(pd.to_datetime(daily["date"]).min().date()),
         "date_end": str(pd.to_datetime(daily["date"]).max().date()),
+        "formal_report_period_start": hashes.get("formal_report_period_start"),
+        "formal_report_period_end": hashes.get("formal_report_period_end"),
+        "daily_estimation_start": hashes.get("daily_estimation_start"),
+        "daily_estimation_end": hashes.get("daily_estimation_end"),
+        "first_report_event_date": hashes.get("first_report_event_date"),
+        "last_report_event_date": hashes.get("last_report_event_date"),
+        "last_d1_date": hashes.get("last_d1_date"),
+        "novelty_raw_mean": hashes.get("novelty_raw_mean"),
+        "novelty_raw_std": hashes.get("novelty_raw_std"),
+        "novelty_standardization_scope": hashes.get("novelty_standardization_scope"),
         "return_data_sha256": hashes["return_data_sha256"],
         "event_panel_sha256": hashes["event_panel_sha256"],
+        "policy_operation_sha256": hashes.get("policy_operation_sha256", ""),
+        "daily_dataset_sha256": hashes.get("daily_dataset_sha256"),
         "cache_metadata": expected_meta,
         "cache_status": status if status != "hit" else "miss",
         "cache_invalidation_reason": reason,
@@ -687,9 +896,26 @@ def run_locked_full_joint_mle(
         "converged": bool(best.success),
         "optimizer_message": str(best.message),
         "parameters": params,
-        "standard_errors": stderr,
-        "p_values": pvalues,
-        "log_likelihood": float(-best.fun),
+        "optimizer_inverse_hessian_se_approx": stderr,
+        "optimizer_inverse_hessian_p_approx": pvalues,
+        "optimizer_inverse_hessian_note": "Diagnostic only; formal inference uses the restricted versus unrestricted joint MLE likelihood-ratio test.",
+        "log_likelihood": unrestricted_loglik,
+        "unrestricted_joint_loglik": unrestricted_loglik,
+        "restricted_joint_mle_converged": bool(restricted_result.success),
+        "restricted_joint_optimizer_message": str(restricted_result.message),
+        "restricted_joint_loglik": restricted_loglik,
+        "restricted_joint_parameters": restricted_params,
+        "formal_lr_raw_statistic": float(raw_formal_lr),
+        "formal_lr_statistic": formal_lr,
+        "formal_lr_df": 1,
+        "formal_lr_p_value": formal_lr_p,
+        "primary_inference": "formal_joint_likelihood_ratio",
+        "hessian_is_finite": False,
+        "hessian_is_positive_definite": False,
+        "hessian_condition_number": float("nan"),
+        "wald_inference_status": "unstable_not_used",
+        "conditional_variance_change_pct_per_1sd_novelty": float((math.exp(novelty_lambda) - 1) * 100),
+        "conditional_volatility_change_pct_per_1sd_novelty": float((math.exp(novelty_lambda / 2) - 1) * 100),
         "AIC": float(2 * n_params - 2 * (-best.fun)),
         "BIC": float(n_params * math.log(len(daily)) - 2 * (-best.fun)),
         "residual_diagnostics": {
@@ -702,14 +928,36 @@ def run_locked_full_joint_mle(
     }
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    restricted_path = output_json.with_name("daily_egarch_x_restricted.json")
+    restricted_path.write_text(
+        json.dumps(
+            {
+                "method": "restricted_joint_mle_lambda_novelty_z_eq_0",
+                "restricted_parameter": "novelty_z",
+                "converged": bool(restricted_result.success),
+                "optimizer_message": str(restricted_result.message),
+                "restricted_joint_loglik": restricted_loglik,
+                "unrestricted_joint_loglik": unrestricted_loglik,
+                "formal_lr_statistic": formal_lr,
+                "formal_lr_df": 1,
+                "formal_lr_p_value": formal_lr_p,
+                "parameters": restricted_params,
+                "cache_metadata": expected_meta,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     if output_csv is not None:
         pd.DataFrame(
             [
                 {
                     "parameter": name,
                     "estimate": params[name],
-                    "std_error_approx": stderr[name],
-                    "p_value_approx": pvalues[name],
+                    "optimizer_inverse_hessian_se_approx": stderr[name],
+                    "optimizer_inverse_hessian_p_approx": pvalues[name],
+                    "formal_lr_p_value_if_novelty_z": formal_lr_p if name == "novelty_z" else float("nan"),
                 }
                 for name in names
             ]
@@ -738,7 +986,8 @@ def _conditional_sigma2(coeffs: np.ndarray, eps: np.ndarray, X: np.ndarray, base
     e_abs_z = math.sqrt((nu - 2) / math.pi) * math.exp(gammaln((nu - 1) / 2) - gammaln(nu / 2)) if nu > 2 else math.sqrt(2 / math.pi)
     sigma2 = np.zeros(len(eps))
     cached = np.asarray(base.get("conditional_variance", []), dtype=float)
-    sigma2[0] = float(cached[0]) if len(cached) else float(np.nanvar(eps))
+    initial = float(cached[0]) if len(cached) and np.isfinite(cached[0]) and cached[0] > 0 else float(np.nanvar(eps))
+    sigma2[0] = max(initial, 1e-8)
     for t in range(1, len(eps)):
         z_prev = eps[t - 1] / math.sqrt(max(sigma2[t - 1], 1e-12))
         log_sigma2 = (
@@ -777,7 +1026,10 @@ def _fit_fixed_nuisance_coefficients(
         optimize_idx = list(range(n_coeff))
 
     nu = _baseline_param(baseline["params"], "nu", default=8.0)
-    base_ll = _student_t_ll_from_sigma2(eps, np.maximum(np.asarray(baseline["conditional_variance"], dtype=float), 1e-12), nu)
+    restricted_coeffs = fixed_coeffs.copy()
+    restricted_coeffs[optimize_idx] = 0.0
+    restricted_sigma2 = _conditional_sigma2(restricted_coeffs, eps, X_arr, baseline)
+    restricted_ll = _student_t_ll_from_sigma2(eps, restricted_sigma2, nu)
 
     def objective(theta: np.ndarray) -> float:
         coeffs = fixed_coeffs.copy()
@@ -792,24 +1044,43 @@ def _fit_fixed_nuisance_coefficients(
     coeffs[optimize_idx] = result.x
     sigma2 = _conditional_sigma2(coeffs, eps, X_arr, baseline)
     loglik = _student_t_ll_from_sigma2(eps, sigma2, nu)
+    if (not np.isfinite(loglik)) or loglik < restricted_ll - 1e-6:
+        coeffs = restricted_coeffs
+        sigma2 = restricted_sigma2
+        unrestricted_ll = float(restricted_ll)
+        gain = 0.0
+        lr = 0.0
+        optimizer_improvement_status = "no_improvement"
+    else:
+        unrestricted_ll = float(loglik)
+        gain = float(max(unrestricted_ll - restricted_ll, 0.0))
+        lr = float(2 * gain)
+        optimizer_improvement_status = "improved" if gain > 0 else "no_improvement"
+    df_lr = int(len(optimize_idx))
+    lr_p = float(scipy_stats.chi2.sf(lr, df_lr)) if df_lr > 0 and np.isfinite(lr) else float("nan")
     return {
-        "status": "ok" if np.isfinite(loglik) else "failed",
+        "status": "ok" if np.isfinite(unrestricted_ll) and np.isfinite(restricted_ll) else "failed",
         "converged": bool(result.success),
         "optimizer_message": str(result.message),
-        "loglik": float(loglik),
-        "baseline_loglik_fixed_params": float(base_ll),
-        "conditional_loglik_gain": float(loglik - base_ll),
-        "aic_conditional": float(2 * len(optimize_idx) - 2 * loglik),
+        "loglik": float(unrestricted_ll),
+        "restricted_loglik": float(restricted_ll),
+        "unrestricted_loglik": float(unrestricted_ll),
+        "conditional_loglik_gain": float(gain),
+        "conditional_lr_statistic": lr,
+        "conditional_lr_df": df_lr,
+        "conditional_lr_p_value": lr_p,
+        "optimizer_improvement_status": optimizer_improvement_status,
+        "aic_conditional": float(2 * len(optimize_idx) - 2 * unrestricted_ll),
         "nobs": int(len(y_pct)),
         "params_frozen": {
             "mean_and_egarch_params": baseline["params"],
             "note": "Mean, omega, alpha, gamma, beta and nu are frozen from the full continuous daily baseline EGARCH.",
         },
         "exog_params": {f"exog_{i}": float(coeffs[i]) for i in range(n_coeff)},
+        "restricted_exog_params": {f"exog_{i}": float(restricted_coeffs[i]) for i in range(n_coeff)},
         "conditional_vol_mean": float(np.mean(np.sqrt(sigma2))),
         "distribution": "student_t",
         "method": "fixed_nuisance_conditional_likelihood",
-        "likelihood_ratio_diagnostic": float(2 * (loglik - base_ll)),
     }
 
 
@@ -828,8 +1099,8 @@ def _nuisance_from_locked(locked: dict) -> dict:
         },
         "exog_params": {
             "report_day": float(params.get("report_day", 0.0)),
-            "novelty": float(params.get("novelty", 0.0)),
-            "policy_action": float(params.get("policy_action", 0.0)),
+            "novelty_z": float(params.get("novelty_z", 0.0)),
+            "policy_action_day": float(params.get("policy_action_day", 0.0)),
         },
         "conditional_variance": locked.get("conditional_variance", []),
         "source_method": locked.get("method", "full_joint_mle"),
@@ -838,25 +1109,52 @@ def _nuisance_from_locked(locked: dict) -> dict:
 
 def _conditional_spec_matrix(daily: pd.DataFrame, spec: str) -> tuple[pd.DataFrame, np.ndarray, list[int]]:
     report_d0 = daily["report_day"].astype(float).reset_index(drop=True)
-    novelty_d0 = daily["novelty"].astype(float).reset_index(drop=True)
-    policy = daily["policy_action"].astype(float).reset_index(drop=True)
-    report_d1 = report_d0.shift(1).fillna(0.0)
+    novelty_d0 = daily["novelty_z"].astype(float).reset_index(drop=True)
+    policy = daily["policy_action_day"].astype(float).reset_index(drop=True)
     novelty_d1 = novelty_d0.shift(1).fillna(0.0)
     if spec == "D0":
-        X = pd.DataFrame({"report_day": report_d0, "novelty_d0": novelty_d0, "policy_action": policy})
+        X = pd.DataFrame({"report_day_d0": report_d0, "novelty_d0": novelty_d0, "policy_action_day": policy})
         fixed = np.zeros(3)
         optimize_idx = [1]
     elif spec == "D1":
-        X = pd.DataFrame({"report_day_d1": report_d1, "novelty_d1": novelty_d1, "policy_action": policy})
+        X = pd.DataFrame({"report_day_d0": report_d0, "novelty_d1": novelty_d1, "policy_action_day": policy})
         fixed = np.zeros(3)
         optimize_idx = [1]
     elif spec == "D0_D1":
-        X = pd.DataFrame({"report_day": report_d0, "novelty_d0": novelty_d0, "novelty_d1": novelty_d1, "policy_action": policy})
+        X = pd.DataFrame({"report_day_d0": report_d0, "novelty_d0": novelty_d0, "novelty_d1": novelty_d1, "policy_action_day": policy})
         fixed = np.zeros(4)
         optimize_idx = [1, 2]
     else:
         raise ValueError(f"Unknown conditional EGARCH-X spec: {spec}")
     return X, fixed, optimize_idx
+
+
+def _d0_d1_collinearity_diagnostics(daily: pd.DataFrame, fit: dict) -> dict:
+    X, _, _ = _conditional_spec_matrix(daily, "D0_D1")
+    event_mask = (X["novelty_d0"].abs() > 0) | (X["novelty_d1"].abs() > 0)
+    event_design = X.loc[event_mask, ["novelty_d0", "novelty_d1"]].to_numpy(dtype=float)
+    if event_design.shape[0] >= 2 and np.nanstd(event_design[:, 0]) > 0 and np.nanstd(event_design[:, 1]) > 0:
+        corr = float(np.corrcoef(event_design[:, 0], event_design[:, 1])[0, 1])
+    else:
+        corr = float("nan")
+    if event_design.shape[0] >= 2:
+        _, svals, _ = np.linalg.svd(event_design, full_matrices=False)
+        condition_number = float(svals.max() / svals.min()) if svals.min() > 1e-12 else float("inf")
+    else:
+        condition_number = float("nan")
+    params = fit.get("exog_params", {})
+    lambda_d0 = float(params.get("exog_1", float("nan")))
+    lambda_d1 = float(params.get("exog_2", float("nan")))
+    warning = bool((np.isfinite(condition_number) and condition_number > 30) or (np.isfinite(corr) and abs(corr) > 0.90))
+    return {
+        "corr_novelty_d0_novelty_d1": corr,
+        "condition_number_of_event_design": condition_number,
+        "lambda_d0": lambda_d0,
+        "lambda_d1": lambda_d1,
+        "lambda_d0_plus_lambda_d1": float(lambda_d0 + lambda_d1) if np.isfinite(lambda_d0) and np.isfinite(lambda_d1) else float("nan"),
+        "joint_lr_p_value": fit.get("conditional_lr_p_value"),
+        "distributed_lag_collinearity_warning": warning,
+    }
 
 
 def run_fixed_nuisance_conditional_egarch_x(
@@ -868,14 +1166,30 @@ def run_fixed_nuisance_conditional_egarch_x(
     seed: int = 2026,
     output_json: Path | None = None,
     output_csv: Path | None = None,
+    cache_path: Path | None = None,
+    force: bool = False,
 ) -> dict:
     """Run fixed-nuisance conditional likelihood sensitivity and permutation."""
     import time
 
     checks = validate_daily_egarch_dataset(daily)
+    expected_meta = conditional_cache_metadata(hashes, nuisance_parameter_source, n_perm=n_perm, random_seed=seed)
+    if cache_path is not None and not force:
+        status, reason, cached = _cache_status(cache_path, expected_meta)
+        if status == "hit" and cached is not None:
+            cached["cache_status"] = "hit"
+            cached["cache_invalidation_reason"] = ""
+            if output_json is not None and output_json != cache_path:
+                output_json.parent.mkdir(parents=True, exist_ok=True)
+                output_json.write_text(json.dumps(cached, ensure_ascii=False, indent=2), encoding="utf-8")
+            if output_csv is not None:
+                pd.DataFrame(cached.get("sensitivity", [])).to_csv(output_csv, index=False, encoding="utf-8-sig")
+            return cached
+    else:
+        status, reason = "miss", "force recompute" if force else "cache disabled"
     y_pct = pd.Series(daily["return"].astype(float).to_numpy() * 100)
     fixed_report = float(nuisance.get("exog_params", {}).get("report_day", 0.0))
-    fixed_policy = float(nuisance.get("exog_params", {}).get("policy_action", 0.0))
+    fixed_policy = float(nuisance.get("exog_params", {}).get("policy_action_day", 0.0))
     rows = []
     timings = {}
     fits = {}
@@ -898,8 +1212,14 @@ def run_fixed_nuisance_conditional_egarch_x(
             "status": fit["status"],
             "converged": fit["converged"],
             "nobs": fit["nobs"],
+            "restricted_loglik": fit["restricted_loglik"],
+            "unrestricted_loglik": fit["unrestricted_loglik"],
             "conditional_loglik": fit["loglik"],
-            "conditional_likelihood_ratio_diagnostic": fit["likelihood_ratio_diagnostic"],
+            "conditional_loglik_gain": fit["conditional_loglik_gain"],
+            "conditional_lr_statistic": fit["conditional_lr_statistic"],
+            "conditional_lr_df": fit["conditional_lr_df"],
+            "conditional_lr_p_value": fit["conditional_lr_p_value"],
+            "optimizer_improvement_status": fit["optimizer_improvement_status"],
             "report_day_coef_fixed": fixed_report,
             "policy_action_coef_fixed": fixed_policy,
         }
@@ -912,7 +1232,7 @@ def run_fixed_nuisance_conditional_egarch_x(
     fixed_perm[0] = fixed_report
     fixed_perm[2] = fixed_policy
     observed = abs(fits["D0"]["exog_params"].get("exog_1", 0.0))
-    event_mask = daily["report_day"].astype(float).eq(1.0).reset_index(drop=True)
+    event_mask = daily["novelty_available"].astype(float).eq(1.0).reset_index(drop=True)
     event_values = X_perm.loc[event_mask, "novelty_d0"].to_numpy()
     count = 0
     t0 = time.perf_counter()
@@ -925,6 +1245,7 @@ def run_fixed_nuisance_conditional_egarch_x(
             count += 1
     permutation_p = float((1 + count) / (n_perm + 1))
     timings["permutation_seconds"] = time.perf_counter() - t0
+    d0_d1_diagnostics = _d0_d1_collinearity_diagnostics(daily, fits["D0_D1"])
     out = {
         "method": "fixed_nuisance_conditional_likelihood",
         "sample_scope": "full_continuous_daily_sequence",
@@ -939,10 +1260,17 @@ def run_fixed_nuisance_conditional_egarch_x(
         "permutation_random_seed": int(seed),
         "permutation_reestimates_nuisance_parameters": False,
         "permutation_p_novelty": permutation_p,
+        "cache_metadata": expected_meta,
+        "cache_status": status if status != "hit" else "miss",
+        "cache_invalidation_reason": reason,
         "timings": timings,
         "sensitivity": rows,
         "main": fits["D0"],
+        "D0_D1_collinearity_diagnostics": d0_d1_diagnostics,
     }
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     if output_json is not None:
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -953,11 +1281,11 @@ def run_fixed_nuisance_conditional_egarch_x(
 
 def compare_locked_and_conditional(locked: dict, conditional: dict) -> dict:
     """Compare formal D0 full joint MLE with fixed-nuisance D0 estimate."""
-    full_lambda = float(locked.get("parameters", {}).get("novelty", float("nan")))
+    full_lambda = float(locked.get("parameters", {}).get("novelty_z", float("nan")))
     cond_lambda = float(conditional.get("main", {}).get("exog_params", {}).get("exog_1", float("nan")))
     rel_diff = abs(cond_lambda - full_lambda) / max(abs(full_lambda), 0.01) if np.isfinite(full_lambda) and np.isfinite(cond_lambda) else float("nan")
     sign_consistent = bool(np.sign(full_lambda) == np.sign(cond_lambda)) if np.isfinite(full_lambda) and np.isfinite(cond_lambda) else False
-    p_full = float(locked.get("p_values", {}).get("novelty", float("nan")))
+    p_full = float(locked.get("formal_lr_p_value", float("nan")))
     full_sig = bool(p_full < 0.05) if np.isfinite(p_full) else False
     # Conditional likelihood currently does not use a standard full-MLE covariance;
     # significance agreement is therefore interpreted conservatively as no
@@ -974,6 +1302,8 @@ def compare_locked_and_conditional(locked: dict, conditional: dict) -> dict:
         "relative_difference": float(rel_diff),
         "loglik_full_joint": locked.get("log_likelihood"),
         "conditional_loglik": conditional.get("main", {}).get("loglik"),
+        "formal_lr_p_value": p_full,
+        "conditional_lr_p_value": conditional.get("main", {}).get("conditional_lr_p_value"),
         "beta_difference": beta_diff,
         "nu_difference": nu_diff,
         "significance_consistent": significance_consistent,

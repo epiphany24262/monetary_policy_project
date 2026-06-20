@@ -278,7 +278,7 @@ def build_text_features() -> pd.DataFrame:
     return features
 
 
-def build_results(recompute_heavy: bool = False) -> dict:
+def build_results(recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
     ensure_dirs()
     verify_final_analysis_plan()
     build_research_documents()
@@ -310,7 +310,11 @@ def build_results(recompute_heavy: bool = False) -> dict:
     robust_table = similarity_robustness(stock_panel)
 
     # ── Student-t EGARCH-X on daily returns ──
-    egarch_x_results = _run_daily_egarch_x(stock_panel, recompute_heavy=recompute_heavy)
+    egarch_x_results = _run_daily_egarch_x(
+        stock_panel,
+        recompute_heavy=recompute_heavy,
+        recompute_diagnostics=recompute_diagnostics,
+    )
 
     # ── Power analysis ──
     power_results = run_power_analysis(stock_panel)
@@ -558,7 +562,7 @@ def _run_daily_egarch_x_fast(stock_panel: pd.DataFrame) -> dict:
     return {"main": results.get("student_t", {}), "normal": results.get("normal", {}), "permutation_p_novelty": float(perm_p)}
 
 
-def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False) -> dict:
+def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
     """Student-t EGARCH-X on the full continuous CSI 300 daily return series."""
     stock = load_stock_prices()
     events = load_event_calendar()
@@ -568,6 +572,9 @@ def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False
     expected = egarch_cache_metadata(
         hashes["return_data_sha256"],
         hashes["event_panel_sha256"],
+        policy_operation_sha256=hashes.get("policy_operation_sha256", ""),
+        novelty_mean=hashes.get("novelty_raw_mean"),
+        novelty_std=hashes.get("novelty_raw_std"),
         model_version="daily_egarch_x_locked_full_joint_mle_v1",
         code_version=code_version(),
     )
@@ -593,6 +600,7 @@ def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False
     conditional_path = RESULTS_DIR / "daily_egarch_x_conditional.json"
     conditional_csv = RESULTS_DIR / "daily_egarch_x_conditional.csv"
     nuisance = _nuisance_from_locked(locked)
+    conditional_cache = OUTPUT_DIR / "cache" / "daily_egarch_x_conditional_cache.json"
     conditional = run_fixed_nuisance_conditional_egarch_x(
         daily,
         hashes,
@@ -602,6 +610,8 @@ def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False
         seed=2026,
         output_json=conditional_path,
         output_csv=conditional_csv,
+        cache_path=conditional_cache,
+        force=bool(recompute_heavy or recompute_diagnostics),
     )
     comparison = compare_locked_and_conditional(locked, conditional)
     combined = {
@@ -675,8 +685,8 @@ def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFra
     }
 
 
-def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False) -> dict:
-    results = build_results(recompute_heavy=recompute_heavy)
+def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
+    results = build_results(recompute_heavy=recompute_heavy, recompute_diagnostics=recompute_diagnostics)
     build_notebook()
     build_paper(results)
     pdf_check = inspect_pdf()
@@ -700,7 +710,8 @@ def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False) -> dict
         "sentiment_cv_accuracy": results["text_model_summary"]["sentiment_cv"].get("accuracy"),
         "stance_cv_accuracy": results["text_model_summary"]["policy_stance_cv"].get("accuracy"),
         "egarch_x_status": results["egarch_x"]["main"].get("method"),
-        "egarch_x_novelty_coef": results["egarch_x"]["main"].get("parameters", {}).get("novelty"),
+        "egarch_x_novelty_coef": results["egarch_x"]["main"].get("parameters", {}).get("novelty_z"),
+        "egarch_x_formal_lr_p": results["egarch_x"]["main"].get("formal_lr_p_value"),
         "egarch_x_perm_p": results["egarch_x"]["permutation_p_novelty"],
         "notebook_returncode": notebook_result["returncode"],
         "pdf_pages": pdf_check["page_count"],

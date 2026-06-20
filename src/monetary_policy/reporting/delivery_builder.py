@@ -86,8 +86,17 @@ def build_final_submission() -> dict:
             )
         elif src.exists():
             _copy_file(src, dst)
+    for rel in [
+        "output/diagnostics/learning_curve_sentiment.csv",
+        "output/diagnostics/learning_curve_policy_stance.csv",
+        "output/diagnostics/learning_curve_topic.csv",
+        "output/diagnostics/market_power_analysis.csv",
+    ]:
+        src = ROOT / rel
+        if src.exists():
+            _copy_file(src, FINAL_SUBMISSION_DIR / rel)
     manifest_rows = []
-    forbidden_parts = {".codex", "archive", "phases", "prompts", "output/diagnostics"}
+    forbidden_parts = {".codex", "archive", "phases", "prompts"}
     for path in sorted(p for p in FINAL_SUBMISSION_DIR.rglob("*") if p.is_file()):
         rel = path.relative_to(FINAL_SUBMISSION_DIR).as_posix()
         manifest_rows.append({"path": rel, "bytes": path.stat().st_size})
@@ -118,7 +127,8 @@ def build_final_submission() -> dict:
         "# 最终提交包说明\n\n"
         "`final_submission/` 是面向课程教师的精简提交目录，排除了提示词工程、内部审计日志、历史归档和原始许可不确定数据。\n\n"
         "复现命令：\n\n"
-        "```bash\npython -m venv .venv\n.venv\\Scripts\\python -m pip install -r requirements.txt\n.venv\\Scripts\\python run_all.py --offline\n.venv\\Scripts\\python -m pytest -q\n```\n",
+        "```bash\npython -m venv .venv\n.venv\\Scripts\\python -m pip install -r requirements.txt\n.venv\\Scripts\\python run_all.py --offline\n.venv\\Scripts\\python -m pytest -q\n```\n"
+        "EGARCH-X缓存说明：默认命令读取已锁定的联合MLE和条件诊断缓存；需要重算D1、D0+D1和置换诊断时运行 `.venv\\Scripts\\python run_all.py --offline --recompute-diagnostics`；需要重算正式受限/非受限联合MLE时运行 `.venv\\Scripts\\python run_all.py --offline --recompute-heavy`。\n",
         encoding="utf-8",
     )
     return {"included_files": len(manifest_rows), "manifest": "final_submission/final_package_manifest.csv"}
