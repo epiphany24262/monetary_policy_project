@@ -234,87 +234,123 @@ def _add_body_paragraph(doc: Document, text: str) -> None:
 
 def _add_three_line_table(doc: Document, df: pd.DataFrame, title: str = "",
                           note: str = "", max_rows: int = 20) -> None:
-    """Add a three-line table per 《统计研究》specifications."""
+    """Add a three-line table per 《统计研究》specifications.
+
+    - Table title above, centered, bold
+    - Header row bold with light shading
+    - Thick top border, thin separator under header, thick bottom border
+    - No vertical or interior horizontal borders
+    """
     view = df.head(max_rows).copy()
-    n_rows = len(view) + 1  # +1 for header
+    n_rows = len(view) + 1
     n_cols = min(len(view.columns), 7)
     view = view.iloc[:, :n_cols]
 
-    # Table title
+    # ── Title ──
     if title:
         p_title = doc.add_paragraph()
         p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _set_paragraph_spacing(p_title, space_before=Pt(6), space_after=Pt(2))
+        _set_paragraph_spacing(p_title, space_before=Pt(8), space_after=Pt(4))
         run_t = p_title.add_run(title)
         _set_run_font(run_t, "黑体", Pt(9), bold=True)
 
+    # ── Build table ──
     table = doc.add_table(rows=n_rows, cols=n_cols)
+    # Remove any table style so our explicit borders take effect
+    table.style = None
     table.autofit = True
 
-    # Header row
+    # ── Set table-level borders: only top + bottom, no interior ──
+    tbl = table._tbl
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = parse_xml(f'<w:tblPr {nsdecls("w")} />')
+        tbl.insert(0, tblPr)
+    # Remove old borders
+    for old_b in tblPr.findall(qn("w:tblBorders")):
+        tblPr.remove(old_b)
+    tblBorders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '  <w:top w:val="single" w:sz="12" w:space="0" w:color="000000"/>'
+        '  <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:bottom w:val="single" w:sz="12" w:space="0" w:color="000000"/>'
+        '  <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '  <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'
+        '</w:tblBorders>'
+    )
+    tblPr.append(tblBorders)
+
+    # ── Header row ──
     for j, col_name in enumerate(view.columns):
         cell = table.rows[0].cells[j]
         cell.text = ""
         p = cell.paragraphs[0]
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _set_paragraph_spacing(p, Pt(14), Pt(0), Pt(2), Pt(2))
         run = p.add_run(str(col_name))
         _set_run_font(run, "宋体", Pt(8), bold=True)
+        # Thin border below header
+        _set_cell_border(cell, "bottom", "single", "6", "000000")
+        # Light gray header background
+        _set_cell_shading(cell, "F2F2F2")
+        # Thin vertical borders between columns
+        _set_cell_border(cell, "left", "single", "4", "999999")
+        _set_cell_border(cell, "right", "single", "4", "999999")
+        _set_cell_border(cell, "top", "none", "0", "auto")
 
-    # Data rows
+    # ── Data rows ──
     for i, (_, row) in enumerate(view.iterrows()):
         for j, col_name in enumerate(view.columns):
             cell = table.rows[i + 1].cells[j]
             cell.text = ""
             p = cell.paragraphs[0]
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _set_paragraph_spacing(p, Pt(13), Pt(0), Pt(1), Pt(1))
             val = row[col_name]
             txt = f"{val:.4f}" if isinstance(val, float) else str(val)
             run = p.add_run(txt)
             _set_run_font(run, "宋体", Pt(7.5), bold=False)
+            # Thin vertical borders between columns only
+            _set_cell_border(cell, "left", "single", "4", "CCCCCC")
+            _set_cell_border(cell, "right", "single", "4", "CCCCCC")
+            _set_cell_border(cell, "top", "none", "0", "auto")
+            _set_cell_border(cell, "bottom", "none", "0", "auto")
 
-    # Apply three-line borders: top of header (thick), bottom of header (thin), bottom of table (thick)
-    tbl = table._tbl
-    tblPr = tbl.tblPr if tbl.tblPr is not None else parse_xml(f'<w:tblPr {nsdecls("w")} />')
-    borders = parse_xml(
-        f'<w:tblBorders {nsdecls("w")}>'
-        '  <w:top w:val="single" w:sz="12" w:space="0" w:color="000000"/>'
-        '  <w:bottom w:val="single" w:sz="12" w:space="0" w:color="000000"/>'
-        '  <w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '  <w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '  <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '  <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
-        '</w:tblBorders>'
-    )
-    # Remove existing borders if any
-    existing = tblPr.findall(qn("w:tblBorders"))
-    for e in existing:
-        tblPr.remove(e)
-    tblPr.append(borders)
-
-    # Bottom border on header row
-    for j in range(n_cols):
-        tc = table.rows[0].cells[j]._tc
-        tcPr = tc.get_or_add_tcPr()
-        tcBorders = parse_xml(
-            f'<w:tcBorders {nsdecls("w")}>'
-            f'  <w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
-            f'</w:tcBorders>'
-        )
-        existing_tc = tcPr.findall(qn("w:tcBorders"))
-        for e in existing_tc:
-            tcPr.remove(e)
-        tcPr.append(tcBorders)
-
-    # Table note
+    # ── Note ──
     if note:
         p_note = doc.add_paragraph()
         _set_paragraph_spacing(p_note, first_line_indent=Pt(21), space_after=Pt(6))
         run_n = p_note.add_run(note)
         _set_run_font(run_n, "宋体", Pt(7.5), bold=False)
 
-    # Spacing after table
-    spacer = doc.add_paragraph()
-    _set_paragraph_spacing(spacer, space_after=Pt(2))
+
+def _set_cell_border(cell, edge: str, val: str, sz: str, color: str):
+    """Set a single cell border edge, preserving other edges."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    existing = tcPr.find(qn("w:tcBorders"))
+    if existing is None:
+        existing = parse_xml(f'<w:tcBorders {nsdecls("w")} />')
+        tcPr.append(existing)
+    # Remove old edge if present
+    for old_edge in existing.findall(qn(f"w:{edge}")):
+        existing.remove(old_edge)
+    edge_el = parse_xml(
+        f'<w:{edge} {nsdecls("w")} w:val="{val}" w:sz="{sz}" w:space="0" w:color="{color}"/>'
+    )
+    existing.append(edge_el)
+
+
+def _set_cell_shading(cell, color: str):
+    """Set cell background shading."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("w:shd")):
+        tcPr.remove(old)
+    tcPr.append(parse_xml(
+        f'<w:shd {nsdecls("w")} w:val="clear" w:color="auto" w:fill="{color}"/>'
+    ))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -529,13 +565,22 @@ def _build_content(doc: Document, results: dict) -> None:
         "变化方向取决于政策语调对短端和长端的相对影响：若未预期「宽松」语调主要降低短端"
         "利率预期，斜率可能上升；若同时降低增长预期和期限溢价，斜率也可能收窄。"
     )
-    # Insert figures
-    for fig_name in ["figure1_tone_series.png", "figure2_similarity.png"]:
+    # Insert figures with captions BELOW
+    _fig_captions = {
+        "figure1_tone_series.png": "图1  政策指引、宏观语调与政策倾向",
+        "figure2_similarity.png": "图2  相邻报告文本创新度",
+    }
+    for fig_name, caption in _fig_captions.items():
         fig = FIGURES_DIR / fig_name
         if fig.exists():
             p_img = doc.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p_img.add_run().add_picture(str(fig), width=Inches(5.5))
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_cap.add_run(caption)
+            _set_run_font(run_cap, "宋体", Pt(9), bold=False)
+            _set_paragraph_spacing(p_cap, space_after=Pt(4))
 
     # Section 7
     _add_level1_heading(doc, "七、股票波动主结果")
@@ -554,13 +599,22 @@ def _build_content(doc: Document, results: dict) -> None:
         "降低小样本下单一稳健标准误的偶然性。季度报告样本最多只有 80 期，任何结论都不"
         "应被写成高频公告研究那样的强反应。"
     )
-    # Figures
-    for fig_name in ["figure3_volatility_paths.png", "figure4_similarity_rv_scatter.png"]:
+    # Figures with captions BELOW
+    _fig_captions2 = {
+        "figure3_volatility_paths.png": "图3  高低创新度报告后的平均股票波动路径",
+        "figure4_similarity_rv_scatter.png": "图4  政策指引创新度与发布后五日波动率",
+    }
+    for fig_name, caption in _fig_captions2.items():
         fig = FIGURES_DIR / fig_name
         if fig.exists():
             p_img = doc.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p_img.add_run().add_picture(str(fig), width=Inches(5.5))
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_cap.add_run(caption)
+            _set_run_font(run_cap, "宋体", Pt(9), bold=False)
+            _set_paragraph_spacing(p_cap, space_after=Pt(4))
 
     # ── Result tables ──
     _add_level2_heading(doc, "（一）描述性统计与回归结果")
@@ -605,12 +659,21 @@ def _build_content(doc: Document, results: dict) -> None:
         "同一时段内其他宏观信息冲击（如 GDP、CPI 发布、全球央行决策）完全分离，因此"
         "将债券结果限定为条件相关关系而非独立因果效应。"
     )
-    for fig_name in ["figure5_yield_curve_factors.png", "figure6_curve_reactions.png"]:
+    _fig_captions3 = {
+        "figure5_yield_curve_factors.png": "图5  国债收益率曲线水平、斜率和曲率",
+        "figure6_curve_reactions.png": "图6  未预期语调与收益率曲线斜率反应",
+    }
+    for fig_name, caption in _fig_captions3.items():
         fig = FIGURES_DIR / fig_name
         if fig.exists():
             p_img = doc.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p_img.add_run().add_picture(str(fig), width=Inches(5.5))
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_cap.add_run(caption)
+            _set_run_font(run_cap, "宋体", Pt(9), bold=False)
+            _set_paragraph_spacing(p_cap, space_after=Pt(4))
 
     # Section 9
     _add_level1_heading(doc, "九、稳健性、诊断与人工验证")
@@ -703,7 +766,8 @@ def _build_content(doc: Document, results: dict) -> None:
         "特征、事件面板、回归表、图形源数据逐步核对，确认 2026Q1 未进入正式样本、四个"
         "早期政策指引章节已经修复、人工验证样本已完成标注（罗允绩，240 句）、EGARCH "
         "仅作为诊断而非主证据、自动词典在句子级存在系统性偏误但文档级聚合指标稳健。"
-        "这样的复核路径可以减少口径误差，也能让不显著结果和显著结果接受同样的检查。"
+        "这样的复核路径可以减少口径误差，也能让不显著结果和显著结果接受同样的检查，"
+        "确保研究透明度和可复现性。"
     )
 
     # ── References ──
@@ -725,12 +789,18 @@ def _build_content(doc: Document, results: dict) -> None:
 
 def build_paper(results: dict) -> None:
     """Build the course paper DOCX with cover page + journal-formatted body."""
-    # ── Step 1: Copy cover as base ──
     if COVER_PATH.exists():
         doc = Document(str(COVER_PATH))
-        # After cover, add a section break for body pages
-        # The cover already has its own section; add a new section
+        # Move to the end of the cover section, then add a manual page break
+        # followed by a CONTINUOUS section break so no blank page appears.
+        last = doc.add_paragraph()
+        run = last.add_run()
+        run._element.append(
+            parse_xml(f'<w:br {nsdecls("w")} w:type="page"/>')
+        )
+        from docx.enum.section import WD_SECTION_START
         new_section = doc.add_section()
+        new_section.start_type = WD_SECTION_START.CONTINUOUS
         new_section.top_margin = MARGIN_TOP
         new_section.bottom_margin = MARGIN_BOTTOM
         new_section.left_margin = MARGIN_LEFT
@@ -745,13 +815,9 @@ def build_paper(results: dict) -> None:
         section.left_margin = MARGIN_LEFT
         section.right_margin = MARGIN_RIGHT
 
-    # ── Step 2: Build body content ──
     _build_content(doc, results)
-
-    # ── Step 3: Save ──
     PAPER_DIR.mkdir(parents=True, exist_ok=True)
     doc.save(str(DOCX_PATH))
-    # Also build PDF
     _build_pdf(results)
 
 
