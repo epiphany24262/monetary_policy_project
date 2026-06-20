@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "saved_at": "2026-06-20T13:00:34",
-  "revision_note": "v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), risk (+6), exchange_rate (+5), financial_stability (+9) based on 240-sentence manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged.",
+  "saved_at": "2026-06-20T14:45:39",
+  "revision_note": "v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), risk (+6), exchange_rate (+5), financial_stability (+9), real_estate (+17) based on 240-sentence manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged.",
   "dovish": [
     "下调政策利率",
     "保持信贷平稳增长",
@@ -181,6 +181,25 @@
       "金融稳定",
       "金融风险防范化解",
       "银行体系"
+    ],
+    "real_estate": [
+      "个人住房贷款",
+      "二套房",
+      "住房",
+      "住房信贷",
+      "保交楼",
+      "保障性住房",
+      "商品房",
+      "土地市场",
+      "房价",
+      "房企",
+      "房地产",
+      "房地产业",
+      "房地产市场",
+      "房地产金融",
+      "房地产金融审慎",
+      "租赁住房",
+      "首套房"
     ]
   },
   "negations": [

@@ -67,6 +67,8 @@ def pbc_domain_words() -> dict[str, set[str]]:
       - exchange_rate: +5 terms
       - financial_stability: +9 terms (17/19 misclassified as "risk" due to
         shared vocabulary with risk category)
+      - real_estate: added as a separate descriptive attention category for
+        housing-market policy language.
     """
     return {
         "dovish": {
@@ -137,6 +139,11 @@ def pbc_domain_words() -> dict[str, set[str]]:
             "不发生系统性", "维护金融稳定", "存款保险", "金融基础设施",
             "支付体系", "资本充足", "不良贷款", "拨备覆盖",
             "宏观审慎评估", "金融风险防范化解",
+        },
+        "real_estate": {
+            "房地产", "住房", "房价", "商品房", "保障性住房", "租赁住房",
+            "个人住房贷款", "住房信贷", "房地产业", "房地产市场", "房地产金融",
+            "房地产金融审慎", "保交楼", "房企", "土地市场", "首套房", "二套房",
         },
     }
 
@@ -237,6 +244,7 @@ def archive_v1_and_save_v2(lexicon: Lexicon) -> None:
                 "risk": sorted(["风险", "防风险", "金融风险", "房地产", "地方债务", "不确定性", "外部冲击"]),
                 "exchange_rate": sorted(["汇率", "人民币汇率", "跨境资本", "外汇市场", "稳汇率"]),
                 "financial_stability": sorted(["金融稳定", "宏观审慎", "系统性风险", "金融监管", "杠杆率"]),
+                "real_estate": sorted(["房地产", "住房", "房价", "个人住房贷款", "房地产市场"]),
             },
             "negations": sorted(base_negations()),
             "degree": base_degree_words(),
@@ -280,7 +288,7 @@ def build_combined_lexicon() -> Lexicon:
     negative = jiang_neg | du_neg | {"下行压力", "不确定性", "冲击", "压力", "风险暴露"}
     revision_note = (
         "v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), "
-        "risk (+6), exchange_rate (+5), financial_stability (+9) based on 240-sentence "
+        "risk (+6), exchange_rate (+5), financial_stability (+9), real_estate (+17) based on 240-sentence "
         "manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged."
     )
     lexicon = Lexicon(

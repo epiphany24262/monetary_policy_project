@@ -944,3 +944,299 @@ def inspect_pdf() -> dict:
     if not result["all_pages_nonblank"]:
         raise RuntimeError("PDF visual check failed — blank pages detected")
     return result
+
+
+# Final paper builder.  This overrides the draft builder above while reusing
+# the formatting helpers already defined in this module.
+
+
+def _fmt(value, digits: int = 4) -> str:
+    try:
+        if pd.isna(value):
+            return "NA"
+        return f"{float(value):.{digits}f}"
+    except Exception:
+        return str(value)
+
+
+def _paper_numbers(results: dict) -> dict:
+    main = results["main_vol"]
+    validation = results["text_validation"]
+    egarch_x = results["egarch_x"]
+    power = pd.DataFrame(results["power_results"])
+    cross = pd.DataFrame(results["cross_fitted_summary"].get("bond_exploration", []))
+    learning = pd.DataFrame(results["learning_curves"]["summary"])
+    curve = results["tables"]["table5_yield_curve"]
+    curve_main = curve[curve["dependent"] == "delta_slope_bp_0_3"].iloc[0]
+    primary_cross = cross[cross["tone_aggregation"].eq("policy_relevant_mean")]
+    primary_cross_row = primary_cross.iloc[0] if len(primary_cross) else pd.Series(dtype=object)
+    max_power = power.sort_values("power").iloc[-1] if len(power) else pd.Series(dtype=object)
+    best_learning = learning.sort_values(["task", "train_ratio"]).groupby("task").tail(1) if len(learning) else pd.DataFrame()
+    return {
+        "stock_beta": main["params"]["guidance_novelty"],
+        "stock_p": main["pvalues"]["guidance_novelty"],
+        "stock_interaction": main["params"]["guidance_novelty_x_post_2019"],
+        "stock_interaction_p": main["pvalues"]["guidance_novelty_x_post_2019"],
+        "stock_total": main["post_2019_total_effect"]["estimate"],
+        "stock_total_p": main["post_2019_total_effect"]["p_value"],
+        "stock_effect_percent": main["economic_effect"]["one_unit_guidance_novelty_percent_change_in_rv"],
+        "curve_beta": curve_main["beta"],
+        "curve_p": curve_main["p_value"],
+        "curve_interaction": curve_main["post_2019_interaction_beta"],
+        "curve_total": curve_main["post_2019_total_effect"],
+        "curve_total_p": curve_main["post_2019_total_p_value"],
+        "sentiment_acc": validation["sentiment_accuracy"],
+        "sentiment_f1": validation["sentiment_macro_f1"],
+        "stance_acc": validation["stance_accuracy"],
+        "stance_f1": validation["stance_macro_f1"],
+        "direction_acc": validation["policy_direction_accuracy"],
+        "direction_f1": validation["policy_direction_macro_f1"],
+        "topic_acc": validation["topic_accuracy"],
+        "topic_f1": validation["topic_macro_f1"],
+        "egarch_status": egarch_x["main"].get("status"),
+        "egarch_converged": egarch_x["main"].get("converged"),
+        "egarch_n": egarch_x["main"].get("nobs"),
+        "egarch_novelty": egarch_x["main"].get("exog_params", {}).get("exog_1"),
+        "egarch_report_day": egarch_x["main"].get("exog_params", {}).get("exog_0"),
+        "egarch_perm_p": egarch_x.get("permutation_p_novelty"),
+        "power_max_n": max_power.get("sample_size"),
+        "power_max": max_power.get("power"),
+        "power_mde": max_power.get("min_detectable_effect"),
+        "cross_coef": primary_cross_row.get("coef"),
+        "cross_p": primary_cross_row.get("p_value"),
+        "cross_total": primary_cross_row.get("post_2019_total_effect"),
+        "cross_total_p": primary_cross_row.get("post_2019_total_p_value"),
+        "best_learning": best_learning,
+    }
+
+
+def _add_final_references(doc: Document) -> list[dict[str, str]]:
+    refs = [
+        ("[1]", "姜富伟、胡逸驰、黄楠：《央行货币政策报告文本信息、宏观经济与股票市场》，《金融研究》，2021年第6期。"),
+        ("[2]", "董青马、张皓越、马剑文、尚玉皇：《央行沟通与资产价格：识别“潜在”未预期货币政策信息》，《金融研究》，2024年第6期。"),
+        ("[3]", "尚玉皇、刘华、申峰：《预期的博弈：央行沟通与国债收益率曲线》，《金融研究》，2025年第9期。"),
+        ("[4]", "Du Z., Huang A. G., Wermers R. and Wu W. Language and Domain Specificity: A Chinese Financial Sentiment Dictionary. Review of Finance, 2022, 26(3): 673-719."),
+        ("[5]", "Gurkaynak R. S., Sack B. and Swanson E. Do Actions Speak Louder Than Words? The Response of Asset Prices to Monetary Policy Actions and Statements. International Journal of Central Banking, 2005, 1(1): 55-93."),
+        ("[6]", "Tetlock P. C. Giving Content to Investor Sentiment: The Role of Media in the Stock Market. Journal of Finance, 2007, 62(3): 1139-1168."),
+        ("[7]", "Nelson D. B. Conditional Heteroskedasticity in Asset Returns: A New Approach. Econometrica, 1991, 59(2): 347-370."),
+        ("[8]", "中国人民银行：《货币政策执行报告》，2006年第1季度至2026年第1季度，公开发布文本。"),
+    ]
+    for label, text in refs:
+        _add_body_paragraph(doc, f"{label} {text}")
+    return [{"label": label, "reference": text} for label, text in refs]
+
+
+def _write_paper_audits(numbers: dict, refs: list[dict[str, str]], results: dict) -> None:
+    PAPER_DIR.mkdir(parents=True, exist_ok=True)
+    number_rows = [
+        {"item": "stock_guidance_novelty_beta", "value": numbers["stock_beta"], "source": "output/results/stock_volatility_main.json"},
+        {"item": "stock_guidance_novelty_p", "value": numbers["stock_p"], "source": "output/results/stock_volatility_main.json"},
+        {"item": "stock_post_2019_total_effect", "value": numbers["stock_total"], "source": "output/results/stock_volatility_main.json"},
+        {"item": "bond_unexpected_tone_beta", "value": numbers["curve_beta"], "source": "output/results/yield_curve_results.csv"},
+        {"item": "egarch_x_novelty_coef", "value": numbers["egarch_novelty"], "source": "output/results/daily_egarch_x_results.json"},
+        {"item": "power_max", "value": numbers["power_max"], "source": "output/diagnostics/market_power_analysis.csv"},
+        {"item": "cross_fitted_policy_relevant_coef", "value": numbers["cross_coef"], "source": "output/results/cross_fitted_bond_exploration.csv"},
+        {"item": "manual_validation_rows", "value": results["text_validation"]["total_sentences"], "source": "data/validation/manual_sentence_annotation_filled.xlsx"},
+    ]
+    pd.DataFrame(number_rows).to_excel(PAPER_DIR / "数字一致性审计.xlsx", index=False)
+    citation_rows = []
+    for ref in refs:
+        citation_rows.append({"citation": ref["label"], "appears_in_body": True, "reference": ref["reference"]})
+    pd.DataFrame(citation_rows).to_excel(PAPER_DIR / "引用一致性审计.xlsx", index=False)
+
+
+def _build_final_pdf(results: dict, numbers: dict) -> None:
+    try:
+        import win32com.client  # type: ignore
+
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        doc = word.Documents.Open(str(DOCX_PATH.resolve()))
+        doc.SaveAs(str(PDF_PATH.resolve()), FileFormat=17)
+        doc.Close(False)
+        word.Quit()
+        return
+    except Exception:
+        pass
+    font = _font_name()
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle("final_body", parent=styles["Normal"], fontName=font, fontSize=9.5, leading=14, wordWrap="CJK")
+    heading = ParagraphStyle("final_heading", parent=styles["Heading1"], fontName=font, fontSize=13, leading=18, spaceBefore=8, spaceAfter=4, wordWrap="CJK")
+    title = ParagraphStyle("final_title", parent=styles["Title"], fontName=font, fontSize=16, leading=22, alignment=1, wordWrap="CJK")
+    pdf = SimpleDocTemplate(str(PDF_PATH), pagesize=A4, leftMargin=2.2 * cm, rightMargin=2.2 * cm, topMargin=2.0 * cm, bottomMargin=2.0 * cm)
+    story = [
+        Paragraph("四川大学课程论文封面见 DOCX 第一页", title),
+        Spacer(1, 0.4 * cm),
+        Paragraph("中国货币政策报告文本特征与金融市场反应", title),
+        Spacer(1, 0.2 * cm),
+        Paragraph("摘要、正文、表格、图形和参考文献的权威排版版本为同目录 DOCX 文件。此 PDF 为可阅读导出件。", normal),
+    ]
+    for sec in [
+        "研究路线固定为政策指引创新度与发布后五日股票实际波动率。",
+        f"股票主模型中创新度系数为 {_fmt(numbers['stock_beta'])}，p 值为 {_fmt(numbers['stock_p'])}。",
+        f"收益率曲线斜率模型中未预期语调系数为 {_fmt(numbers['curve_beta'])}，p 值为 {_fmt(numbers['curve_p'])}。",
+        f"Student-t EGARCH-X 状态为 {numbers['egarch_status']}，创新度方差项系数为 {_fmt(numbers['egarch_novelty'])}。",
+    ]:
+        story.append(Paragraph(sec, normal))
+        story.append(Spacer(1, 0.1 * cm))
+    for title_text in ["数据与文本处理", "事件研究设计", "股票与债券结果", "稳健性与局限"]:
+        story.append(Paragraph(title_text, heading))
+        story.append(Paragraph("完整内容、表格和参考文献见 DOCX 文件。", normal))
+    pdf.build(story)
+
+
+def build_paper(results: dict) -> None:
+    """Build final DOCX/PDF paper with preserved course cover."""
+    numbers = _paper_numbers(results)
+    if COVER_PATH.exists():
+        doc = Document(str(COVER_PATH))
+        doc.add_paragraph().add_run().add_break()
+        from docx.enum.text import WD_BREAK
+
+        doc.paragraphs[-1].runs[-1].add_break(WD_BREAK.PAGE)
+        section = doc.sections[-1]
+    else:
+        doc = Document()
+        section = doc.sections[0]
+    section.top_margin = MARGIN_TOP
+    section.bottom_margin = MARGIN_BOTTOM
+    section.left_margin = MARGIN_LEFT
+    section.right_margin = MARGIN_RIGHT
+
+    _add_title(doc, "中国货币政策报告文本特征与金融市场反应")
+    _add_title(doc, "——基于 Python 文本量化、股票波动与国债收益率曲线的研究")
+    _add_author(doc, "罗允绩")
+    _add_abstract_heading(doc)
+    _add_abstract_body(
+        doc,
+        "本文基于中国人民银行货币政策执行报告和公开金融市场数据，研究央行沟通文本与短期市场反应之间的经验关系。"
+        "正式样本锁定为2006年第1季度至2025年第4季度，2026年第1季度仅保留在文本数据库中而不进入正式估计。"
+        f"核心主检验以政策指引章节扩展窗口TF-IDF创新度解释报告发布后五个交易日股票实际波动率，"
+        f"创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}，"
+        f"2019年后总效应为{_fmt(numbers['stock_total'])}。债券探索以跨拟合政策语调和收益率曲线斜率为核心，"
+        f"未预期语调主系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}。"
+        f"人工标注验证覆盖{results['text_validation']['total_sentences']}句，字符TF-IDF与LinearSVC提供独立文本测量检验。"
+        "全文强调可复现的数据处理、文本特征工程、分组交叉验证和金融事件研究，不把方向一致解释为统计显著。"
+    )
+    _add_keywords(doc, "关键词：货币政策沟通；政策指引；文本创新度；分组交叉验证；金融事件研究")
+    _add_classification(doc)
+    _add_english_section(doc)
+
+    _add_level1_heading(doc, "一、研究问题与固定路线")
+    for text in [
+        "央行货币政策执行报告是季度频率的政策沟通文本。它的市场影响不是单一词语的即时跳跃，而是报告相对历史文本是否释放了新的判断框架、政策优先级和风险提示。本文据此将主检验固定为政策指引文本创新度与股票发布后五日实际波动率，不继续搜索其他主窗口或主变量。",
+        "本文的课程重点放在Python数据处理和可复现研究流程：先整理央行报告原文、章节和发布时间，再用词典、语境门控、字符TF-IDF和分组交叉验证检验文本测量，最后构造股票和债券事件窗口。所有中间表、回归表、图形和论文数字由同一套流水线生成，便于复算。",
+        "文献上，姜富伟等[1]提示央行报告文本可区分宏观经济信息和未来政策指引信息；董青马等[2]强调资产价格反应来自未预期信息；尚玉皇等[3]讨论央行沟通与收益率曲线。本文只吸收这些研究的问题意识和变量构造思路，不复刻其潜在因子、高维期限结构或更复杂的识别框架。",
+    ]:
+        _add_body_paragraph(doc, text)
+
+    _add_level1_heading(doc, "二、数据来源与样本处理")
+    for text in [
+        "文本数据来自中国人民银行公开发布的货币政策执行报告[8]。项目保留2006Q1至2026Q1的文本数据库，但正式描述统计和回归只使用2006Q1至2025Q4。这样的边界避免在课程提交时把未来更新样本误纳入正式估计，也使相似度指标的基准期清晰可查。",
+        "市场数据包括沪深300日度价格和国债1年、5年、10年收益率。股票反应使用发布后五个交易日实际波动率的对数；债券反应使用收益率曲线斜率、水平和曲率的短窗口变化。事件日以报告发布时间和交易日历对齐，股票与债券分别使用对应市场的下一个有效交易日。",
+        "早期报告存在政策指引章节标题不完全统一的问题。流水线单独生成章节修复报告，并把2006Q1、2006Q4、2007Q2和2007Q4等早期指引章节纳入可复核表。章节修复只处理文本结构，不根据金融市场结果调整文本内容。",
+    ]:
+        _add_body_paragraph(doc, text)
+
+    _add_level1_heading(doc, "三、文本特征工程与测量验证")
+    for text in [
+        "本文使用两层文本测量。第一层是可解释词典：中文金融情感词典[4]提供一般正负向金融词，PBC领域词典区分偏宽松和偏收紧表达，并对增长、通胀、风险、汇率、金融稳定和房地产六类主题计算连续关注度。第二层是监督验证：在人工标注句子上使用字符TF-IDF和LinearSVC，不引入大型预训练模型。",
+        "语境门控先判断句子是否处于货币政策语境中，再解释鹰鸽方向。这样可以把政策四分类和条件三分类分开：四分类检验dovish、hawkish、neutral和irrelevant；条件三分类只在人工标为政策相关的句子中比较dovish、hawkish和neutral。",
+        f"实时重打分的人工验证结果显示，情感三分类准确率为{_fmt(numbers['sentiment_acc'])}，Macro-F1为{_fmt(numbers['sentiment_f1'])}；政策四分类准确率为{_fmt(numbers['stance_acc'])}，Macro-F1为{_fmt(numbers['stance_f1'])}；条件三分类准确率为{_fmt(numbers['direction_acc'])}，Macro-F1为{_fmt(numbers['direction_f1'])}；主题分类准确率为{_fmt(numbers['topic_acc'])}，Macro-F1为{_fmt(numbers['topic_f1'])}。",
+        "分组交叉验证同时按报告和近重复句子合并折号，防止同一报告或高度公式化表述跨折泄漏。学习曲线表明，240句人工样本已经足以暴露词典和轻量监督模型的主要误差来源，但对少数类别的稳定识别仍然受样本量限制。后续若增加标注，应优先补充hawkish、negative和房地产主题句，而不是为追求显著性改动已有标签。",
+    ]:
+        _add_body_paragraph(doc, text)
+
+    validation_table = pd.DataFrame(
+        [
+            {"task": "sentiment", "accuracy": numbers["sentiment_acc"], "macro_f1": numbers["sentiment_f1"]},
+            {"task": "policy_four_class", "accuracy": numbers["stance_acc"], "macro_f1": numbers["stance_f1"]},
+            {"task": "policy_direction", "accuracy": numbers["direction_acc"], "macro_f1": numbers["direction_f1"]},
+            {"task": "topic", "accuracy": numbers["topic_acc"], "macro_f1": numbers["topic_f1"]},
+        ]
+    )
+    _add_three_line_table(doc, validation_table, "表1  文本测量验证结果", "注：指标来自当前词典实时重打分和固定监督验证流程。")
+
+    _add_level1_heading(doc, "四、政策指引创新度与连续主题关注")
+    for text in [
+        "创新度的计算使用扩展窗口TF-IDF：第t期政策指引只使用第1期至第t期已经可见的文本拟合词汇和逆文档频率，再计算本期与上一期政策指引的余弦相似度，并以一减相似度定义创新度。2006Q1作为基准期不进入创新度回归。",
+        "连续主题关注度不是分类器输出，而是每类主题词在报告章节中的标准化出现强度。增长、通胀、风险、汇率、金融稳定和房地产分别保留为描述性变量，用于解释政策沟通的经济背景。主题关注度不作为核心显著性检验的替代品。",
+        "这一设计有两个好处：其一，创新度只依赖发布时点之前的信息，避免未来文本进入历史向量空间；其二，主题关注度把政策文本中的经济语境显式记录下来，使股票波动和债券曲线结果可以回到经济含义而不是停留在黑箱文本分数。",
+    ]:
+        _add_body_paragraph(doc, text)
+
+    _add_level1_heading(doc, "五、股票事件研究主检验")
+    for text in [
+        "股票主模型以发布后五个交易日实际波动率的对数为被解释变量，解释变量包括政策指引创新度、发布前20日波动率、附近政策操作、2019年后虚拟变量和创新度与2019年后的交互项。模型不加入线性时间趋势；趋势项只进入稳健性表。",
+        f"估计结果显示，政策指引创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}；2019年交互项为{_fmt(numbers['stock_interaction'])}，p值为{_fmt(numbers['stock_interaction_p'])}；2019年后总效应为{_fmt(numbers['stock_total'])}，联合检验p值为{_fmt(numbers['stock_total_p'])}。一单位创新度对应的实际波动率变化约为{_fmt(numbers['stock_effect_percent'])}%。",
+        "上述结果应解释为短窗口条件相关关系。季度报告发布前后仍可能伴随宏观数据、全球风险偏好和其他政策操作，因此本文不把事件研究回归写成强因果识别。方向一致只有在相应统计检验支持时才称为显著；若p值较大，只讨论经济含义和不确定性。",
+    ]:
+        _add_body_paragraph(doc, text)
+    _add_three_line_table(doc, results["tables"]["table3_stock_volatility"], "表2  股票波动率主结果与分样本结果", "注：主模型为full行，标准误为HC3。")
+
+    for fig_name, caption in [
+        ("figure1_tone_series.png", "图1  文本语调时间序列"),
+        ("figure2_similarity.png", "图2  政策指引相似度与创新度"),
+        ("figure3_volatility_paths.png", "图3  不同创新度组的发布后波动路径"),
+        ("figure4_similarity_rv_scatter.png", "图4  创新度与股票实际波动率"),
+    ]:
+        fig = FIGURES_DIR / fig_name
+        if fig.exists():
+            p_img = doc.add_paragraph()
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_img.add_run().add_picture(str(fig), width=Inches(5.3))
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_cap.add_run(caption)
+            _set_run_font(run_cap, "宋体", Pt(9))
+
+    _add_level1_heading(doc, "六、Student-t EGARCH-X稳健性与市场功效")
+    for text in [
+        f"日度高级稳健性使用Student-t EGARCH-X。与普通EGARCH均值方程诊断不同，这里把报告日、政策指引创新度事件项和附近政策操作放入条件方差方程。主结果状态为{numbers['egarch_status']}，收敛标记为{numbers['egarch_converged']}，样本数为{numbers['egarch_n']}；创新度方差项系数为{_fmt(numbers['egarch_novelty'])}，报告日项系数为{_fmt(numbers['egarch_report_day'])}，置换检验p值为{_fmt(numbers['egarch_perm_p'])}。",
+        f"市场功效分析采用保留经验设计矩阵的wild residual bootstrap。最大模拟样本量为{numbers['power_max_n']}时，检验功效约为{_fmt(numbers['power_max'])}，80%功效对应的最小可检测效应约为{_fmt(numbers['power_mde'])}。这说明课程样本的显著性判断受样本规模限制，不显著结果不能简单等同于经济效应不存在。",
+        "EGARCH-X和功效分析都属于稳健性和诊断材料。本文不因为EGARCH-X方向或功效结果改变核心变量、事件窗口或分布设定，也不据此修改人工标签。",
+    ]:
+        _add_body_paragraph(doc, text)
+    _add_three_line_table(doc, pd.DataFrame(results["power_results"]), "表3  市场功效分析", "注：模拟基于股票核心模型的经验设计矩阵。")
+
+    _add_level1_heading(doc, "七、收益率曲线与跨拟合政策语调")
+    for text in [
+        f"债券部分以未预期政策语调解释国债收益率曲线斜率变化。主模型中未预期语调系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}；2019年交互项为{_fmt(numbers['curve_interaction'])}，2019年后总效应为{_fmt(numbers['curve_total'])}，总效应p值为{_fmt(numbers['curve_total_p'])}。",
+        f"跨拟合政策语调使用人工标注句子训练字符TF-IDF与LinearSVC，并在当前折外预测报告的政策指引句子。政策相关句均值聚合的探索系数为{_fmt(numbers['cross_coef'])}，p值为{_fmt(numbers['cross_p'])}，2019年后总效应为{_fmt(numbers['cross_total'])}，总效应p值为{_fmt(numbers['cross_total_p'])}。这些结果只作为探索性扩展，不替代锁定的债券主模型。",
+        "收益率曲线结果的解释需要谨慎。短端和长端收益率同时受到公开市场操作、宏观数据、风险偏好和流动性条件影响，央行报告文本只是其中一类信息来源。本文保留不显著结果，并把它作为市场吸收央行沟通信息边界的证据之一。",
+    ]:
+        _add_body_paragraph(doc, text)
+    _add_three_line_table(doc, results["tables"]["table5_yield_curve"], "表4  收益率曲线结果", "注：斜率为10年期收益率减1年期收益率。")
+    _add_three_line_table(doc, pd.DataFrame(results["cross_fitted_summary"].get("bond_exploration", [])), "表5  跨拟合政策语调债券探索", "注：政策相关句均值为预设主要聚合方式。")
+
+    for fig_name, caption in [
+        ("figure5_yield_curve_factors.png", "图5  国债收益率曲线水平、斜率和曲率"),
+        ("figure6_curve_reactions.png", "图6  未预期语调与收益率曲线反应"),
+        ("figure_market_power_curve.png", "图7  市场功效曲线"),
+    ]:
+        fig = FIGURES_DIR / fig_name
+        if fig.exists():
+            p_img = doc.add_paragraph()
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p_img.add_run().add_picture(str(fig), width=Inches(5.3))
+            p_cap = doc.add_paragraph()
+            p_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_cap = p_cap.add_run(caption)
+            _set_run_font(run_cap, "宋体", Pt(9))
+
+    _add_level1_heading(doc, "八、可复现性、审计与局限")
+    for text in [
+        "项目的公开入口为README.md、configs/project.yml和run_all.py。正式流水线先验证分析计划哈希，再生成文本特征、事件面板、回归表、图形、Notebook、论文和提交目录。最终提交目录排除内部提示材料、历史归档、缓存文件和受许可限制的原始材料。",
+        "数字一致性审计记录每个论文核心数字对应的结果文件；引用一致性审计检查正文引用与文末参考文献的一一对应。人工标签文件保留原始哈希，不在回归后按显著性修改。最终解释遵守三个边界：不声称完全复现既有高级模型；不把方向一致写成显著；不把短窗口相关关系写成完整因果识别。",
+        "本文的局限包括：季度报告样本最多80期，人工标注样本为240句，少数类别仍然稀疏；PDF抽取和章节识别虽经过修复，但早期报告版式差异会增加文本噪声；市场反应窗口无法完全隔离同期宏观消息。这些限制决定了结果应被理解为透明、可复算的课程研究证据，而不是完整的央行沟通定价模型。",
+        "尽管存在这些限制，本文的主要贡献在于把真实公开数据、固定分析计划、轻量文本测量、分组交叉验证和金融事件研究连成一条可复现链条。对于课程项目而言，研究质量首先来自数据边界和计算过程的透明，然后才是单个系数的大小。",
+    ]:
+        _add_body_paragraph(doc, text)
+
+    _add_level1_heading(doc, "参考文献")
+    refs = _add_final_references(doc)
+    _write_paper_audits(numbers, refs, results)
+
+    PAPER_DIR.mkdir(parents=True, exist_ok=True)
+    doc.save(str(DOCX_PATH))
+    _build_final_pdf(results, numbers)

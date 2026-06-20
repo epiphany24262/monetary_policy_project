@@ -8,6 +8,7 @@ Computes accuracy, precision, recall, F1, confusion matrices for three tasks:
 
 from __future__ import annotations
 
+import hashlib
 import math
 from pathlib import Path
 
@@ -23,7 +24,9 @@ from sklearn.metrics import (
 )
 
 from .lexicon import build_combined_lexicon
+from .lexicon import COMBINED_PATH
 from .sentiment import score_text
+from .context_gate import gate_stance_label, load_context_rules
 from ..paths import FIGURES_DIR, OUTPUT_DIR
 
 # ---------------------------------------------------------------------------
@@ -44,7 +47,7 @@ def _auto_stance_label(score: float) -> str:
 
 
 def _auto_topic_label(attention: dict[str, float]) -> str:
-    topics = ["growth", "inflation", "risk", "exchange_rate", "financial_stability"]
+    topics = ["growth", "inflation", "risk", "exchange_rate", "financial_stability", "real_estate"]
     best = max(topics, key=lambda t: attention.get(f"attention_{t}", 0.0))
     return best if attention.get(f"attention_{best}", 0.0) > 0 else "other"
 
@@ -82,11 +85,16 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
     # created.  Those columns become stale after a lexicon revision.  Validation
     # must therefore re-score every sentence instead of reusing cached values.
     lexicon = build_combined_lexicon()
+    context_rules = load_context_rules()
     rescored = [score_text(str(sentence), lexicon) for sentence in df["sentence"]]
     df["current_auto_sentiment_score"] = [row["normalized_sentiment"] for row in rescored]
     df["current_auto_policy_stance_score"] = [row["normalized_policy_stance"] for row in rescored]
     df["auto_sentiment"] = df["current_auto_sentiment_score"].map(_auto_sentiment_label)
-    df["auto_stance"] = df["current_auto_policy_stance_score"].map(_auto_stance_label)
+    df["auto_stance_signed"] = df["current_auto_policy_stance_score"].map(_auto_stance_label)
+    df["auto_stance"] = [
+        gate_stance_label(label, str(sentence), context_rules)
+        for label, sentence in zip(df["auto_stance_signed"], df["sentence"])
+    ]
     df["auto_topic"] = [_auto_topic_label(row) for row in rescored]
 
     stored_sentiment_mismatch = int(
@@ -108,10 +116,6 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
     df["manual_sentiment"] = df["manual_sentiment_label"].str.strip().str.lower()
     df["manual_stance"] = df["manual_policy_stance_label"].str.strip().str.lower()
     df["manual_topic"] = df["manual_topic_label"].str.strip().str.lower()
-
-    # Normalize topic labels: map rare manual labels to "other"
-    topic_remap = {"real_estate": "other"}
-    df["manual_topic"] = df["manual_topic"].map(lambda x: topic_remap.get(x, x))
 
     # ── Validate field completeness ──
     required = [
@@ -221,9 +225,15 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
     n_disagree_sent = int(disagrees["disagree_sentiment"].sum())
     n_disagree_stance = int(disagrees["disagree_stance"].sum())
     n_disagree_topic = int(disagrees["disagree_topic"].sum())
+    annotation_sha = hashlib.sha256(annotation_path.read_bytes()).hexdigest()
+    lexicon_sha = hashlib.sha256(COMBINED_PATH.read_bytes()).hexdigest() if COMBINED_PATH.exists() else ""
 
     summary = {
         "total_sentences": int(len(df)),
+        "annotation_path": str(annotation_path),
+        "annotation_sha256": annotation_sha,
+        "lexicon_path": str(COMBINED_PATH),
+        "lexicon_sha256": lexicon_sha,
         "completeness": completeness,
         "illegal_labels": illegal,
         "sentiment_accuracy": results["sentiment"]["accuracy"],
@@ -236,6 +246,8 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
         "policy_direction_macro_f1": results["policy_direction"]["macro_f1"],
         "policy_direction_weighted_f1": results["policy_direction"]["weighted_f1"],
         "score_source": "current_lexicon_rescore",
+        "context_gate": "pbc_context_rules_v1",
+        "context_gate_changed_count": int((df["auto_stance"] != df["auto_stance_signed"]).sum()),
         "lexicon_version": int(getattr(lexicon, "version", 0)),
         "stored_sentiment_score_mismatch_count": stored_sentiment_mismatch,
         "stored_stance_score_mismatch_count": stored_stance_mismatch,
@@ -303,7 +315,7 @@ def write_validation_outputs(validation: dict) -> dict[str, Path]:
         "auto_sentiment_score", "current_auto_sentiment_score",
         "auto_sentiment", "manual_sentiment",
         "auto_policy_stance_score", "current_auto_policy_stance_score",
-        "auto_stance", "manual_stance",
+        "auto_stance_signed", "auto_stance", "manual_stance",
         "auto_topic", "manual_topic",
         "disagree_sentiment", "disagree_stance", "disagree_topic",
     ]

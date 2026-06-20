@@ -1,0 +1,89 @@
+sentiment_gate:
+  economic_state:
+    description: Real economic state descriptors — may be positive or negative without
+      implying policy action
+    keywords:
+    - 经济下行
+    - 经济回升
+    - 增长放缓
+    - 增长加快
+    - 需求不足
+    - 需求旺盛
+    - 产能过剩
+    - 供需平衡
+    - 出口下滑
+    - 出口增长
+    - 投资回落
+    - 消费恢复
+  factual_statement:
+    description: Pure factual statements without sentiment implication
+    keywords:
+    - 同比增长
+    - 环比增长
+    - 累计增长
+    - 比上年
+    - 占GDP
+    - 余额为
+    - 增速为
+    - 达到
+  mixed_signal:
+    description: Sentences containing both positive and negative signals — require
+      holistic reading
+    keywords:
+    - 虽然
+    - 但
+    - 然而
+    - 不过
+    - 压力
+    - 挑战
+  policy_goal_action:
+    description: Policy goals and actions — contain 'support' style words but are
+      procedural, not sentiment-bearing
+    keywords:
+    - 支持实体经济
+    - 促进就业
+    - 提高效率
+    - 完善机制
+    - 优化结构
+    - 加强监管
+    - 推动改革
+    - 深化改革
+    - 健全制度
+    - 规范发展
+    - 鼓励创新
+stance_gate:
+  default_irrelevant:
+    description: These topics default to irrelevant for policy stance
+    keywords:
+    - 财政减税
+    - 产业扶持
+    - 非法集资
+    - 一般金融监管
+    - 政府职能
+    - 非货币
+    - 制度建设
+  require_monetary_policy_context:
+    description: Only sentences touching these concepts enter dovish/hawkish directional
+      judgment
+    trigger_keywords:
+    - 货币政策
+    - 流动性
+    - 货币信贷
+    - 社会融资
+    - 准备金率
+    - 政策利率
+    - 公开市场操作
+    - 融资成本
+    - 总量调控
+    - 逆周期
+    - 跨周期
+    - 货币调节
+    - 信贷投放
+    - 货币供给
+    - 利率水平
+    - 降准
+    - 降息
+    - 加息
+    - 货币市场
+    - 再贷款
+    - 再贴现

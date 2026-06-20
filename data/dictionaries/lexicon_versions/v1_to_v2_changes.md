@@ -1,8 +1,8 @@
 # PBC Domain Lexicon Change Report
 
 **v1 → v2**
-**Saved at**: 2026-06-20T13:00:34
-**Note**: v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), risk (+6), exchange_rate (+5), financial_stability (+9) based on 240-sentence manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged.
+**Saved at**: 2026-06-20T14:45:39
+**Note**: v1→v2: expanded dovish (+18), hawkish (+18), growth (+22), inflation (+5), risk (+6), exchange_rate (+5), financial_stability (+9), real_estate (+17) based on 240-sentence manual annotation validation. External sentiment dictionaries (Jiang, Du) unchanged.
 
 ## Changes by category
 
@@ -35,6 +35,11 @@
 - Terms before: 6
 - Terms after: 12
 - **Added (6)**: PPI, 价格稳定, 工业品价格, 物价上涨, 通货, 通货膨胀
+
+### topic_real_estate
+- Terms before: 0
+- Terms after: 17
+- **Added (17)**: 个人住房贷款, 二套房, 住房, 住房信贷, 保交楼, 保障性住房, 商品房, 土地市场, 房价, 房企, 房地产, 房地产业, 房地产市场, 房地产金融, 房地产金融审慎, 租赁住房, 首套房
 
 ### topic_risk
 - Terms before: 7

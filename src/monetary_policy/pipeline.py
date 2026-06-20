@@ -14,7 +14,13 @@ from .analysis.robustness import similarity_robustness
 from .analysis.stock_returns import run_stock_return_models
 from .analysis.stock_volatility import run_stock_volatility_models, write_egarch
 from .analysis.yield_curve import run_yield_curve_models
+from .analysis.egarch_x import run_egarch_x, run_egarch_x_sensitivity, permutation_test_novelty, write_egarch_x_results
+from .analysis.power_analysis import run_power_analysis, write_power_outputs
+from .analysis.cross_fitted_tone import run_cross_fitted_tone, write_cross_fitted_outputs
+from .data.bond_yields import load_bond_yields
+from .data.market_prices import load_stock_prices
 from .data.pbc_reports import load_full_texts, load_report_metadata, load_section_texts
+from .events.event_calendar import load_event_calendar
 from .events.event_panel import build_stock_event_panel, build_stock_volatility_paths, build_yield_curve_event_panel
 from .paths import FIGURES_DIR, OUTPUT_DIR, PAPER_DIR, PROCESSED_DIR, RESEARCH_DIR, RESULTS_DIR, TABLES_DIR, ensure_dirs, ROOT
 from .reporting.delivery_builder import build_final_submission
@@ -29,8 +35,10 @@ from .text.similarity import (
     adjacent_expanding_word_tfidf_similarity,
     adjacent_word_tfidf_similarity,
 )
-from .text.manual_validation import build_manual_sentence_annotation
+from .text.manual_validation import build_manual_sentence_annotation, load_filled_annotations
 from .text.validation_report import run_text_validation, write_validation_outputs
+from .text.supervised_classifier import grouped_cross_validate, generate_learning_curve
+from .text.context_gate import load_context_rules, gate_stance_label
 from .visualization.market_figures import (
     plot_curve_reactions,
     plot_similarity_scatter,
@@ -124,7 +132,7 @@ def build_text_features() -> pd.DataFrame:
             "effective_chars",
             "sentence_count",
         ]
-        topic_names = ["growth", "inflation", "risk", "exchange_rate", "financial_stability"]
+        topic_names = list(lexicon.topics)
         if not found:
             score = {name: np.nan for name in metric_names}
             score.update({f"attention_{topic}": np.nan for topic in topic_names})
@@ -187,6 +195,7 @@ def build_text_features() -> pd.DataFrame:
             "attention_risk",
             "attention_exchange_rate",
             "attention_financial_stability",
+            "attention_real_estate",
         ],
         aggfunc="first",
     )
@@ -220,16 +229,25 @@ def build_text_features() -> pd.DataFrame:
         on="report_id",
         how="left",
     )
+    features["guidance_novelty_expanding_tfidf"] = features["guidance_novelty"]
     for prefix in ["guidance", "macro"]:
-        for topic in ["growth", "inflation", "risk", "exchange_rate", "financial_stability"]:
+        for topic in list(lexicon.topics):
             col = f"{prefix}_attention_{topic}"
             if col in features.columns:
                 features[f"{col}_change"] = features[col] - features[col].shift(1)
+                formal = features["report_period"].map(is_in_formal_sample) & features[col].notna()
+                mean = features.loc[formal, col].mean()
+                std = features.loc[formal, col].std(ddof=0) or 1.0
+                features[f"{col}_z"] = (features[col] - mean) / std
     unexpected = expanding_unexpected(features["guidance_z_policy_stance"])
     features["guidance_expected_tone"] = unexpected["expected_tone"]
     features["guidance_unexpected_tone"] = unexpected["unexpected_tone"]
     features["guidance_expected_method"] = unexpected["expected_method"]
     features["in_formal_sample"] = features["report_period"].map(is_in_formal_sample)
+    topic_cols = [c for c in features.columns if "_attention_" in c and not c.endswith(("_change", "_z"))]
+    features[["report_id", "report_period", "in_formal_sample", *topic_cols]].to_csv(
+        PROCESSED_DIR / "continuous_topic_attention.csv", index=False, encoding="utf-8-sig"
+    )
     diagnostics = features[
         [
             "report_id",
@@ -256,6 +274,16 @@ def build_results() -> dict:
     annotation_summary = build_manual_sentence_annotation(text_features)
     text_validation = run_text_validation()
     write_validation_outputs(text_validation)
+
+    # ── Context-gated text model evaluation ──
+    text_model_summary = _run_text_model_evaluation()
+    (RESULTS_DIR / "text_model_evaluation.json").write_text(
+        json.dumps(text_model_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # ── Supervised learning curves ──
+    learning_curves = _run_learning_curves()
+
     stock_panel = build_stock_event_panel(text_features)
     stock_panel.to_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv", index=False, encoding="utf-8-sig")
     vol_paths = build_stock_volatility_paths(stock_panel)
@@ -268,6 +296,16 @@ def build_results() -> dict:
     return_table = run_stock_return_models(stock_panel)
     curve_table = run_yield_curve_models(curve_panel)
     robust_table = similarity_robustness(stock_panel)
+
+    # ── Student-t EGARCH-X on daily returns ──
+    egarch_x_results = _run_daily_egarch_x(stock_panel)
+
+    # ── Power analysis ──
+    power_results = run_power_analysis(stock_panel)
+    write_power_outputs(power_results)
+
+    # ── Cross-fitted policy tone for bond exploration ──
+    cross_fitted_summary = _run_cross_fitted_bonds(curve_panel, text_features)
     desc = descriptive_stats(
         stock_panel.merge(curve_panel[["event_id", "delta_level_bp_0_3", "delta_slope_bp_0_3", "delta_curvature_bp_0_3"]], on="event_id", how="left"),
         [
@@ -281,6 +319,7 @@ def build_results() -> dict:
             "guidance_attention_growth",
             "guidance_attention_inflation",
             "guidance_attention_risk",
+            "guidance_attention_real_estate",
             "return_0_p3",
             "delta_level_bp_0_3",
             "delta_slope_bp_0_3",
@@ -294,6 +333,9 @@ def build_results() -> dict:
         "table4_stock_returns": return_table,
         "table5_yield_curve": curve_table,
         "table6_robustness": robust_table,
+        "table7_learning_curve": pd.DataFrame(learning_curves["summary"]),
+        "table8_market_power": power_results,
+        "table9_cross_fitted_bond": pd.DataFrame(cross_fitted_summary.get("bond_exploration", [])),
     }
     for name, df in tables.items():
         df.to_csv(TABLES_DIR / f"{name}.csv", index=False, encoding="utf-8-sig")
@@ -323,6 +365,271 @@ def build_results() -> dict:
         "main_vol": main_vol,
         "egarch": egarch,
         "text_validation": text_validation["summary"],
+        "text_model_summary": text_model_summary,
+        "learning_curves": learning_curves,
+        "egarch_x": egarch_x_results,
+        "power_results": power_results.to_dict(orient="records"),
+        "cross_fitted_summary": cross_fitted_summary,
+    }
+
+
+# ── Helper: text model evaluation ──
+def _run_text_model_evaluation() -> dict:
+    """Context-gated rescoring + grouped CV for policy stance and sentiment."""
+    filled = load_filled_annotations()
+    rules = load_context_rules()
+
+    # Apply context gating
+    gated_stance = []
+    for _, row in filled.iterrows():
+        auto_label = "neutral"
+        score = row.get("auto_policy_stance_score", 0)
+        if pd.notna(score) and score != 0:
+            auto_label = "dovish" if score > 0 else "hawkish"
+        gated = gate_stance_label(auto_label, str(row["sentence"]), rules)
+        gated_stance.append(gated)
+    filled["gated_stance"] = gated_stance
+
+    # Grouped CV: sentiment
+    sentiment_cv = grouped_cross_validate(
+        filled["sentence"].tolist(),
+        filled["manual_sentiment_label"].str.strip().str.lower().tolist(),
+        filled["report_id"].tolist(),
+        C=1.0, seed=2026,
+    )
+
+    # Grouped CV: policy stance (full four-class)
+    stance_cv = grouped_cross_validate(
+        filled["sentence"].tolist(),
+        filled["manual_policy_stance_label"].str.strip().str.lower().tolist(),
+        filled["report_id"].tolist(),
+        C=1.0, seed=2026,
+    )
+
+    # Grouped CV: policy direction (excl irrelevant)
+    dir_mask = filled["manual_policy_stance_label"].str.strip().str.lower() != "irrelevant"
+    dir_sents = filled.loc[dir_mask, "sentence"].tolist()
+    dir_labels = filled.loc[dir_mask, "manual_policy_stance_label"].str.strip().str.lower().tolist()
+    dir_groups = filled.loc[dir_mask, "report_id"].tolist()
+    direction_cv = grouped_cross_validate(dir_sents, dir_labels, dir_groups, C=1.0, seed=2026) if len(dir_sents) >= 10 else {"error": "Too few directional samples"}
+
+    # Topic CV
+    topic_labels = (
+        filled["manual_topic_label"]
+        .str.strip()
+        .str.lower()
+        .replace({"real_estate": "other"})
+        .tolist()
+    )
+    topic_cv = grouped_cross_validate(
+        filled["sentence"].tolist(),
+        topic_labels,
+        filled["report_id"].tolist(),
+        C=1.0, seed=2026,
+    )
+    if "error" not in topic_cv:
+        topic_cv["label_mapping_note"] = "manual real_estate is merged into other for supervised CV because it has one labelled sentence; continuous topic attention keeps real_estate separately."
+
+    return {
+        "sentiment_cv": sentiment_cv,
+        "policy_stance_cv": stance_cv,
+        "policy_direction_cv": direction_cv,
+        "topic_cv": topic_cv,
+        "n_gated_irrelevant": int(sum(1 for g in gated_stance if g == "irrelevant")),
+    }
+
+
+def _run_learning_curves() -> dict:
+    """Generate learning curves for sentiment, stance, and topic."""
+    filled = load_filled_annotations()
+    curves = {}
+    for task, label_col in [
+        ("sentiment", "manual_sentiment_label"),
+        ("policy_stance", "manual_policy_stance_label"),
+        ("topic", "manual_topic_label"),
+    ]:
+        labels = filled[label_col].str.strip().str.lower()
+        if task == "topic":
+            labels = labels.replace({"real_estate": "other"})
+        df_curve = generate_learning_curve(
+            filled["sentence"].tolist(),
+            labels.tolist(),
+            filled["report_id"].tolist(),
+            C=1.0, seed=2026,
+        )
+        curves[task] = df_curve
+        # Save
+        diag = OUTPUT_DIR / "diagnostics"
+        diag.mkdir(parents=True, exist_ok=True)
+        df_curve.to_csv(diag / f"learning_curve_{task}.csv", index=False, encoding="utf-8-sig")
+    # Summary table
+    summary_rows = []
+    for task, df in curves.items():
+        for _, row in df.iterrows():
+            summary_rows.append({"task": task, "train_ratio": row["train_ratio"], "accuracy": row.get("accuracy"), "macro_f1": row.get("macro_f1"), "n": row.get("n")})
+    summary = pd.DataFrame(summary_rows)
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    summary.to_excel(TABLES_DIR / "table_learning_curve_summary.xlsx", index=False)
+    return {"curves": {k: v.to_dict(orient="records") for k, v in curves.items()}, "summary": summary_rows}
+
+
+def _run_daily_egarch_x_fast(stock_panel: pd.DataFrame) -> dict:
+    """Fast EGARCH-X via arch library (Student-t + Normal)."""
+    from arch import arch_model
+    stock = load_stock_prices()
+    events = load_event_calendar()
+    events = events.merge(stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]], on="event_id", how="left")
+
+    stock["report_day"] = 0.0
+    stock["novelty_event"] = 0.0
+    mapping = {}
+    for _, ev in events.iterrows():
+        d = pd.to_datetime(ev["equity_event_date"]).date()
+        mapping[d] = ev.get("guidance_novelty", 0)
+    stock["report_day"] = stock["date"].isin(set(pd.to_datetime(list(mapping.keys())))).astype(float)
+    stock["novelty_event"] = stock["date"].dt.date.map(mapping).fillna(0.0)
+
+    returns = stock["simple_return"].dropna() * 100  # percent returns
+    X = stock[["report_day", "novelty_event"]].loc[returns.index].fillna(0)
+
+    results = {}
+    for dist_name, dist_param in [("student_t", "t"), ("normal", "normal")]:
+        try:
+            model = arch_model(
+                returns, x=X, mean="ARX", lags=1,
+                vol="EGARCH", p=1, o=1, q=1,
+                dist=dist_param,
+            )
+            fit = model.fit(disp="off", show_warning=False)
+            exog_names = [f"exog_{c}" for c in X.columns]
+            exog_params = {}
+            for i, col in enumerate(exog_names):
+                if col in fit.params:
+                    exog_params[col] = float(fit.params[col])
+            results[dist_name] = {
+                "status": "ok",
+                "converged": bool(fit.convergence_flag == 0),
+                "aic": float(fit.aic),
+                "nobs": int(fit.nobs),
+                "params": {k: float(v) for k, v in fit.params.items()},
+                "exog_params": exog_params,
+                "distribution": dist_name,
+                "novelty_coef": exog_params.get("exog_novelty_event", None),
+                "report_day_coef": exog_params.get("exog_report_day", None),
+            }
+        except Exception as e:
+            results[dist_name] = {"status": "failed", "error": str(e)}
+
+    # Permutation test (simplified)
+    rng = np.random.default_rng(2026)
+    base_coef = abs(results.get("student_t", {}).get("novelty_coef") or 0)
+    count = 0
+    n_perm = 200
+    for _ in range(n_perm):
+        perm_nov = rng.permutation(X["novelty_event"].to_numpy())
+        X_perm = X.copy()
+        X_perm["novelty_event"] = perm_nov
+        try:
+            m = arch_model(returns, x=X_perm, mean="ARX", lags=1, vol="EGARCH", p=1, o=1, q=1, dist="t")
+            f = m.fit(disp="off", show_warning=False)
+            if abs(float(f.params.get("novelty_event", 0))) >= base_coef:
+                count += 1
+        except Exception:
+            continue
+    perm_p = (count + 1) / (n_perm + 1)
+
+    write_egarch_x_results(
+        RESULTS_DIR / "daily_egarch_x_results.json",
+        results.get("student_t", {}),
+        pd.DataFrame([{"date_window": "D0", "distribution": d, **r} for d, r in results.items()]),
+    )
+    return {"main": results.get("student_t", {}), "normal": results.get("normal", {}), "permutation_p_novelty": float(perm_p)}
+
+
+def _run_daily_egarch_x(stock_panel: pd.DataFrame) -> dict:
+    """Student-t EGARCH-X on CSI 300 daily returns."""
+    stock = load_stock_prices()
+    events = load_event_calendar()
+    events = events.merge(stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]], on="event_id", how="left")
+
+    stock["report_day"] = 0.0
+    stock["novelty_event"] = 0.0
+    stock["policy_action"] = 0.0
+    mapping = {}
+    action_mapping = {}
+    for _, ev in events.iterrows():
+        d = pd.to_datetime(ev["equity_event_date"]).date()
+        mapping[d] = ev.get("guidance_novelty", 0)
+        action_mapping[d] = ev.get("action_nearby_core", 0)
+    stock["report_day"] = stock["date"].dt.date.isin(set(mapping.keys())).astype(float)
+    stock["novelty_event"] = stock["date"].dt.date.map(mapping).fillna(0.0)
+    stock["policy_action"] = stock["date"].dt.date.map(action_mapping).fillna(0.0)
+
+    returns = stock["simple_return"].dropna()
+    report_day = stock.loc[returns.index, "report_day"]
+    novelty = stock.loc[returns.index, "novelty_event"]
+    policy_action = stock.loc[returns.index, "policy_action"]
+
+    main_result = run_egarch_x(returns, report_day, novelty, policy_action=policy_action, dist="student_t")
+    sensitivity = run_egarch_x_sensitivity(returns, {
+        "D0": report_day,
+        "D0_D1": ((report_day.astype(bool) | report_day.shift(1).fillna(0).astype(bool)).astype(float)),
+        "D1": report_day.shift(1).fillna(0).astype(float),
+    }, novelty, policy_action=policy_action, dist="student_t")
+
+    perm_p = permutation_test_novelty(returns, report_day, novelty, policy_action=policy_action, n_perm=50, seed=2026)
+    write_egarch_x_results(RESULTS_DIR / "daily_egarch_x_results.json", main_result, sensitivity)
+
+    return {"main": main_result, "sensitivity": sensitivity.to_dict(orient="records"), "permutation_p_novelty": perm_p}
+
+
+def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFrame) -> dict:
+    """Cross-fitted policy tone → bond yield curve exploratory analysis."""
+    filled = load_filled_annotations()
+    guidance = filled[filled["section"] == "guidance"].copy()
+    if len(guidance) < 20:
+        return {"error": "Too few guidance sentences for cross-fitting"}
+
+    sentence_path = PROCESSED_DIR / "report_sentences.csv"
+    all_sentences = pd.read_csv(sentence_path) if sentence_path.exists() else guidance
+    sent_preds, report_tone = run_cross_fitted_tone(guidance, all_sentences, n_splits=5, seed=2026)
+    write_cross_fitted_outputs(sent_preds, report_tone)
+
+    # Merge with curve panel (curve_panel uses event_id which equals report_id)
+    curve_with_tone = curve_panel.merge(report_tone.rename(columns={"report_id": "event_id"}), on="event_id", how="left")
+    bond_rows = []
+    for tone_col in ["all_sentence_mean", "policy_relevant_mean", "directional_sentence_mean"]:
+        if tone_col not in curve_with_tone.columns:
+            continue
+        inter_col = f"{tone_col}_x_post_2019"
+        curve_with_tone[inter_col] = curve_with_tone[tone_col] * curve_with_tone["post_2019"]
+        valid = curve_with_tone.dropna(subset=[tone_col, "delta_slope_bp_0_3"])
+        if len(valid) < 10:
+            bond_rows.append({"tone_aggregation": tone_col, "n": len(valid), "coef": float("nan"), "p_value": float("nan")})
+            continue
+        from .analysis.regressions import ols_hc3
+        result = ols_hc3(valid, "delta_slope_bp_0_3", [tone_col, "action_nearby_core", "post_2019", inter_col])
+        from .analysis.regressions import total_effect
+        total = total_effect(result, tone_col, inter_col)
+        bond_rows.append({
+            "tone_aggregation": tone_col,
+            "n": int(result["n"]),
+            "coef": result["params"].get(tone_col, float("nan")),
+            "p_value": result["pvalues"].get(tone_col, float("nan")),
+            "interaction_coef": result["params"].get(inter_col, float("nan")),
+            "interaction_p_value": result["pvalues"].get(inter_col, float("nan")),
+            "post_2019_total_effect": total["estimate"],
+            "post_2019_total_p_value": total["p_value"],
+            "r2": result["r2"],
+        })
+
+    bond_table = pd.DataFrame(bond_rows)
+    bond_table.to_csv(RESULTS_DIR / "cross_fitted_bond_exploration.csv", index=False, encoding="utf-8-sig")
+    bond_table.to_excel(TABLES_DIR / "table_cross_fitted_bond_exploration.xlsx", index=False)
+    return {
+        "bond_exploration": bond_rows,
+        "n_cross_fitted_reports": int(len(report_tone)),
+        "n_cross_fitted_sentences": int(len(sent_preds)),
     }
 
 
@@ -344,6 +651,11 @@ def run_pipeline(execute_nb: bool = True) -> dict:
         "manual_validation_rows": results["text_validation"]["total_sentences"],
         "text_validation_sentiment_accuracy": results["text_validation"]["sentiment_accuracy"],
         "text_validation_topic_accuracy": results["text_validation"]["topic_accuracy"],
+        "sentiment_cv_accuracy": results["text_model_summary"]["sentiment_cv"].get("accuracy"),
+        "stance_cv_accuracy": results["text_model_summary"]["policy_stance_cv"].get("accuracy"),
+        "egarch_x_status": results["egarch_x"]["main"].get("status"),
+        "egarch_x_novelty_coef": results["egarch_x"]["main"].get("exog_params", {}).get("exog_1"),
+        "egarch_x_perm_p": results["egarch_x"]["permutation_p_novelty"],
         "notebook_returncode": notebook_result["returncode"],
         "pdf_pages": pdf_check["page_count"],
         "final_submission_files": submission_summary["included_files"],

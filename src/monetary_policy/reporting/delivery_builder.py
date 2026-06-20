@@ -44,14 +44,13 @@ COMMON_IGNORES = shutil.ignore_patterns(
     "phase*.py",
     "test_phase*.py",
     "*phase*",
-    "*gate*",
     "final_package_manifest.csv",
 )
 
 
 def build_final_submission() -> dict:
     _clear_submission_dir(FINAL_SUBMISSION_DIR)
-    include_files = ["README.md", "requirements.txt", "run_all.py"]
+    include_files = ["README.md", "requirements.txt", "run_all.py", "DATA_LICENSE_AND_REDISTRIBUTION.md"]
     for file in include_files:
         _copy_file(ROOT / file, FINAL_SUBMISSION_DIR / file)
     _copy_tree(ROOT / "configs", FINAL_SUBMISSION_DIR / "configs", ignore=COMMON_IGNORES)
@@ -105,6 +104,11 @@ def build_final_submission() -> dict:
     stale_manifest = delivery / "final_package_manifest.csv"
     if stale_manifest.exists():
         stale_manifest.unlink()
+    manifest_path = FINAL_SUBMISSION_DIR / "final_package_manifest.csv"
+    with manifest_path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["path", "bytes"])
+        writer.writeheader()
+        writer.writerows(manifest_rows)
     with (delivery / "FINAL_SUBMISSION_MANIFEST.csv").open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["path", "bytes"])
         writer.writeheader()
@@ -116,4 +120,4 @@ def build_final_submission() -> dict:
         "```bash\npython -m venv .venv\n.venv\\Scripts\\python -m pip install -r requirements.txt\n.venv\\Scripts\\python run_all.py --offline\n.venv\\Scripts\\python -m pytest -q\n```\n",
         encoding="utf-8",
     )
-    return {"included_files": len(manifest_rows), "manifest": "delivery/FINAL_SUBMISSION_MANIFEST.csv"}
+    return {"included_files": len(manifest_rows), "manifest": "final_submission/final_package_manifest.csv"}

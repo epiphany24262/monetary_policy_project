@@ -65,6 +65,7 @@ def build_stock_event_panel(text_features: pd.DataFrame) -> pd.DataFrame:
             "guidance_attention_risk",
             "guidance_attention_exchange_rate",
             "guidance_attention_financial_stability",
+            "guidance_attention_real_estate",
             "report_length",
             "readability",
         ]:
