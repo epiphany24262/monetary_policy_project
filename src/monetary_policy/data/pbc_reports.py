@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..config import get_path_config
-from ..paths import ROOT
+from ..paths import ROOT, root_relative_path
 
 
 def load_report_metadata() -> pd.DataFrame:
@@ -17,8 +17,12 @@ def load_report_metadata() -> pd.DataFrame:
 def load_report_sections() -> pd.DataFrame:
     repaired = ROOT / "data/processed/report_sections_repaired.csv"
     if repaired.exists():
-        return pd.read_csv(repaired)
-    return pd.read_csv(ROOT / get_path_config("report_sections"))
+        df = pd.read_csv(repaired)
+    else:
+        df = pd.read_csv(ROOT / get_path_config("report_sections"))
+    if "local_path" in df.columns:
+        df["local_path"] = df["local_path"].astype(str).str.replace("\\", "/", regex=False)
+    return df
 
 
 def report_text_path(report_id: str) -> Path:
@@ -47,7 +51,7 @@ def load_section_texts() -> pd.DataFrame:
     sections = load_report_sections()
     rows = []
     for _, row in sections.iterrows():
-        path = ROOT / str(row["local_path"])
+        path = root_relative_path(row["local_path"])
         text = path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
         rows.append({**row.to_dict(), "text": text})
     return pd.DataFrame(rows)

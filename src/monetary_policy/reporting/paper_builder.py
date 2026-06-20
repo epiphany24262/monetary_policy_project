@@ -38,7 +38,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from ..paths import FIGURES_DIR, PAPER_DIR, ROOT, TABLES_DIR
 
@@ -184,8 +184,8 @@ def _add_english_section(doc: Document) -> None:
         "section to explain post-release realized volatility. The main bond-market model "
         "uses unexpected policy tone to explain yield-curve slope changes. "
         "A manual annotation validation of 240 sentences reveals systematic limitations "
-        "of lexicon-based methods at the sentence level, while document-level aggregated "
-        "indicators remain informative for regression analysis."
+        "of lexicon-based methods at the sentence level, and document-level policy-tone "
+        "measures do not yield robust bond-market evidence across alternative specifications."
     )
     _set_run_font(run3b, "仿宋", Pt(9), bold=False, name_en="Times New Roman")
 
@@ -778,131 +778,12 @@ def _build_content(doc: Document, results: dict) -> None:
         _add_body_paragraph(doc, ref)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# Main builders
-# ═══════════════════════════════════════════════════════════════════
-
-def build_paper(results: dict) -> None:
-    """Build the course paper DOCX with cover page + journal-formatted body."""
-    if COVER_PATH.exists():
-        doc = Document(str(COVER_PATH))
-        # Move to the end of the cover section, then add a manual page break
-        # followed by a CONTINUOUS section break so no blank page appears.
-        last = doc.add_paragraph()
-        run = last.add_run()
-        run._element.append(
-            parse_xml(f'<w:br {nsdecls("w")} w:type="page"/>')
-        )
-        from docx.enum.section import WD_SECTION_START
-        new_section = doc.add_section()
-        new_section.start_type = WD_SECTION_START.CONTINUOUS
-        new_section.top_margin = MARGIN_TOP
-        new_section.bottom_margin = MARGIN_BOTTOM
-        new_section.left_margin = MARGIN_LEFT
-        new_section.right_margin = MARGIN_RIGHT
-        new_section.page_width = Cm(21.0)
-        new_section.page_height = Cm(29.7)
-    else:
-        doc = Document()
-        section = doc.sections[0]
-        section.top_margin = MARGIN_TOP
-        section.bottom_margin = MARGIN_BOTTOM
-        section.left_margin = MARGIN_LEFT
-        section.right_margin = MARGIN_RIGHT
-
-    _build_content(doc, results)
-    PAPER_DIR.mkdir(parents=True, exist_ok=True)
-    doc.save(str(DOCX_PATH))
-    _build_pdf(results)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# PDF builder
-# ═══════════════════════════════════════════════════════════════════
-
 def _font_name() -> str:
     for path in [Path("C:/Windows/Fonts/simsun.ttc"), Path("C:/Windows/Fonts/msyh.ttc"), Path("C:/Windows/Fonts/simhei.ttf")]:
         if path.exists():
             pdfmetrics.registerFont(TTFont("CNFont", str(path)))
             return "CNFont"
     return "Helvetica"
-
-
-def _build_pdf(results: dict) -> None:
-    """Build PDF from paper sections using reportlab with CJK support."""
-    font = _font_name()
-    styles = getSampleStyleSheet()
-    normal = ParagraphStyle(
-        "cn_body", parent=styles["Normal"],
-        fontName=font, fontSize=9.5, leading=14, wordWrap="CJK",
-    )
-    heading = ParagraphStyle(
-        "cn_heading", parent=styles["Heading1"],
-        fontName=font, fontSize=14, leading=20,
-        spaceBefore=10, spaceAfter=6, wordWrap="CJK",
-    )
-    title_style = ParagraphStyle(
-        "cn_title", parent=styles["Title"],
-        fontName=font, fontSize=17, leading=24, alignment=1, wordWrap="CJK",
-    )
-
-    doc = SimpleDocTemplate(
-        str(PDF_PATH), pagesize=A4,
-        leftMargin=2.2 * cm, rightMargin=2.2 * cm,
-        topMargin=2.2 * cm, bottomMargin=2.0 * cm,
-    )
-
-    # Reconstruct content text for PDF
-    main = results["main_vol"]
-    beta = main["params"]["guidance_novelty"]
-    pval = main["pvalues"]["guidance_novelty"]
-    interaction = main["params"]["guidance_novelty_x_post_2019"]
-    interaction_p = main["pvalues"]["guidance_novelty_x_post_2019"]
-    total = main["post_2019_total_effect"]["estimate"]
-    total_p = main["post_2019_total_effect"]["p_value"]
-    effect = main["economic_effect"]["one_unit_guidance_novelty_percent_change_in_rv"]
-    legacy = json.loads((ROOT / "output/results/legacy_primary_result.json").read_text(encoding="utf-8"))
-    curve = results["tables"]["table5_yield_curve"]
-    curve_main = curve[curve["model"] == "main_yield_curve"].iloc[0]
-
-    story = []
-
-    def _p(text, style=normal, spacer=True):
-        story.append(Paragraph(text.replace("\n", "<br/>"), style))
-        if spacer:
-            story.append(Spacer(1, 0.08 * cm))
-
-    _p("中国货币政策报告文本特征与金融市场反应<br/>——基于 Python 文本量化、股票波动与国债收益率曲线的研究", title_style, False)
-    story.append(Spacer(1, 0.3 * cm))
-    _p("罗允绩", ParagraphStyle("cn_author", parent=normal, fontName=font, fontSize=12, alignment=1))
-    story.append(Spacer(1, 0.3 * cm))
-
-    _p("内容提要：" + (
-        f"本文基于中国人民银行货币政策执行报告研究央行沟通与金融市场短期反应。"
-        f"正式样本锁定为 2006Q1 至 2025Q4。股票主模型中政策指引创新度系数为 {beta:.4f}（p={pval:.4f}），"
-        f"债券主模型中未预期语调系数为 {curve_main['beta']:.4f}（p={curve_main['p_value']:.4f}）。"
-        f"人工标注验证（240 句）比较初始词典、语境门控和字符TF-IDF+LinearSVC，初始词典只作为失败基准。"
-        f"研究结论限于短窗口相关关系。"
-    ))
-    _p("关键词：货币政策沟通；政策指引；文本创新度；股票波动；收益率曲线")
-    story.append(Spacer(1, 0.3 * cm))
-
-    # Section headings with content
-    sections_text = [
-        ("一、引言", "..."),
-    ]
-    # For PDF we keep it simpler — mainly the DOCX is the authoritative version
-    for sec_title in ["一、引言", "二、文献综述与研究假设", "三、数据来源与样本处理",
-                       "四、文本指标构建", "五、研究设计", "六、文本特征和市场变量描述",
-                       "七、股票波动主结果", "八、股票收益与债券曲线结果",
-                       "九、稳健性、诊断与人工验证", "十、结论", "参考文献"]:
-        _p(sec_title, heading, False)
-        _p("（完整内容见 DOCX 文件。本文所有数字均来自同一套中间表，可通过 Python 代码复现。）")
-
-    try:
-        doc.build(story)
-    except Exception:
-        pass  # PDF is supplementary; DOCX is authoritative
 
 
 def inspect_pdf() -> dict:
@@ -930,7 +811,7 @@ def inspect_pdf() -> dict:
         pix.save(img)
         samples = bytes(pix.samples)
         nonwhite = any(channel < 245 for channel in samples[:: max(1, len(samples) // 5000)])
-        pages.append({"page": i + 1, "text_chars": len(text), "png": str(img.relative_to(ROOT)), "nonblank": len(text) > 20 or nonwhite})
+        pages.append({"page": i + 1, "text_chars": len(text), "png": img.relative_to(ROOT).as_posix(), "nonblank": len(text) > 20 or nonwhite})
     result = {"page_count": len(doc), "all_pages_nonblank": all(p["nonblank"] for p in pages), "pages": pages}
     doc.close()
     (ROOT / "output" / "results" / "pdf_visual_check_refactor.json").write_text(
@@ -957,6 +838,7 @@ def _fmt(value, digits: int = 4) -> str:
 def _paper_numbers(results: dict) -> dict:
     main = results["main_vol"]
     validation = results["text_validation"]
+    text_model = results["text_model_summary"]
     egarch_x = results["egarch_x"]
     power = pd.DataFrame(results["power_results"])
     cross = pd.DataFrame(results["cross_fitted_summary"].get("bond_exploration", []))
@@ -988,6 +870,17 @@ def _paper_numbers(results: dict) -> dict:
         "direction_f1": validation["policy_direction_macro_f1"],
         "topic_acc": validation["topic_accuracy"],
         "topic_f1": validation["topic_macro_f1"],
+        "svc_sentiment_acc": text_model["sentiment_cv"].get("accuracy"),
+        "svc_sentiment_f1": text_model["sentiment_cv"].get("macro_f1"),
+        "svc_stance_acc": text_model["policy_stance_cv"].get("accuracy"),
+        "svc_stance_f1": text_model["policy_stance_cv"].get("macro_f1"),
+        "svc_direction_acc": text_model["policy_direction_cv"].get("accuracy"),
+        "svc_direction_f1": text_model["policy_direction_cv"].get("macro_f1"),
+        "svc_topic_acc": text_model["topic_cv"].get("accuracy"),
+        "svc_topic_f1": text_model["topic_cv"].get("macro_f1"),
+        "svc_n_groups": text_model["sentiment_cv"].get("n_groups"),
+        "context_gate_changed_count": validation.get("context_gate_changed_count"),
+        "n_gated_irrelevant": text_model.get("n_gated_irrelevant"),
         "egarch_status": egarch_x["main"].get("method"),
         "egarch_converged": egarch_x["main"].get("converged"),
         "egarch_n": egarch_x["main"].get("n_daily_observations"),
@@ -1043,6 +936,10 @@ def _write_paper_audits(numbers: dict, refs: list[dict[str, str]], results: dict
         {"item": "egarch_x_variance_change_pct", "value": numbers["egarch_var_change_pct"], "source": "output/results/daily_egarch_x_results.json"},
         {"item": "power_max", "value": numbers["power_max"], "source": "output/diagnostics/market_power_analysis.csv"},
         {"item": "cross_fitted_policy_relevant_coef", "value": numbers["cross_coef"], "source": "output/results/cross_fitted_bond_exploration.csv"},
+        {"item": "svc_sentiment_cv_accuracy", "value": numbers["svc_sentiment_acc"], "source": "output/results/text_model_evaluation.json"},
+        {"item": "svc_policy_stance_cv_accuracy", "value": numbers["svc_stance_acc"], "source": "output/results/text_model_evaluation.json"},
+        {"item": "svc_policy_direction_cv_accuracy", "value": numbers["svc_direction_acc"], "source": "output/results/text_model_evaluation.json"},
+        {"item": "svc_topic_cv_macro_f1", "value": numbers["svc_topic_f1"], "source": "output/results/text_model_evaluation.json"},
         {"item": "manual_validation_rows", "value": results["text_validation"]["total_sentences"], "source": "data/validation/manual_sentence_annotation_filled.xlsx"},
     ]
     pd.DataFrame(number_rows).to_excel(PAPER_DIR / "数字一致性审计.xlsx", index=False)
@@ -1067,10 +964,12 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
         pass
     font = _font_name()
     styles = getSampleStyleSheet()
-    normal = ParagraphStyle("final_body", parent=styles["Normal"], fontName=font, fontSize=9.5, leading=15, firstLineIndent=18, wordWrap="CJK")
-    note = ParagraphStyle("final_note", parent=styles["Normal"], fontName=font, fontSize=8.2, leading=11, wordWrap="CJK")
+    normal = ParagraphStyle("final_body", parent=styles["Normal"], fontName=font, fontSize=10.5, leading=16, firstLineIndent=18, wordWrap="CJK")
+    note = ParagraphStyle("final_note", parent=styles["Normal"], fontName=font, fontSize=10.0, leading=14, wordWrap="CJK")
     heading = ParagraphStyle("final_heading", parent=styles["Heading1"], fontName=font, fontSize=13, leading=18, spaceBefore=8, spaceAfter=4, alignment=1, wordWrap="CJK")
     title = ParagraphStyle("final_title", parent=styles["Title"], fontName=font, fontSize=15, leading=21, alignment=1, wordWrap="CJK")
+    cover_title = ParagraphStyle("cover_title", parent=styles["Title"], fontName=font, fontSize=18, leading=26, alignment=1, wordWrap="CJK")
+    cover_body = ParagraphStyle("cover_body", parent=styles["Normal"], fontName=font, fontSize=12, leading=22, alignment=1, wordWrap="CJK")
     pdf = SimpleDocTemplate(str(PDF_PATH), pagesize=A4, leftMargin=2.2 * cm, rightMargin=2.2 * cm, topMargin=2.0 * cm, bottomMargin=2.0 * cm)
     source_doc = Document(str(DOCX_PATH))
 
@@ -1083,8 +982,26 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
             .replace("\n", "<br/>")
         )
 
-    story = [Paragraph("四川大学课程论文封面见 DOCX 第一页；以下为正文可阅读导出版。", note), Spacer(1, 0.15 * cm)]
-    for para in source_doc.paragraphs:
+    story = []
+    if COVER_PATH.exists():
+        cover_doc = Document(str(COVER_PATH))
+        cover_text = [p.text.strip() for p in cover_doc.paragraphs if p.text.strip()]
+        if not any("四川大学" in text for text in cover_text):
+            cover_text.insert(0, "四川大学课程论文")
+        for i, text in enumerate(cover_text):
+            story.append(Paragraph(clean_pdf_text(text), cover_title if i == 0 else cover_body))
+            story.append(Spacer(1, 0.18 * cm))
+    else:
+        story.append(Paragraph("四川大学课程论文", cover_title))
+    story.append(PageBreak())
+
+    paragraphs = source_doc.paragraphs
+    body_start = 0
+    for idx, para in enumerate(paragraphs):
+        if para.text.strip().startswith("中国货币政策报告文本特征"):
+            body_start = idx
+            break
+    for para in paragraphs[body_start:]:
         text = para.text.strip()
         if not text:
             continue
@@ -1098,8 +1015,11 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
         story.append(Spacer(1, 0.06 * cm))
 
     if source_doc.tables:
+        story.append(PageBreak())
         story.append(Paragraph("表格内容摘录", heading))
-    for table in source_doc.tables:
+    for table_idx, table in enumerate(source_doc.tables):
+        if table_idx == 0 and len(table.rows) > 4:
+            continue
         rows = []
         for row in table.rows:
             values = [clean_pdf_text(cell.text.strip()) for cell in row.cells]
@@ -1112,8 +1032,8 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
                 TableStyle(
                     [
                         ("FONTNAME", (0, 0), (-1, -1), font),
-                        ("FONTSIZE", (0, 0), (-1, -1), 7),
-                        ("LEADING", (0, 0), (-1, -1), 9),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                        ("LEADING", (0, 0), (-1, -1), 12),
                         ("LINEBELOW", (0, 0), (-1, 0), 0.6, "black"),
                         ("LINEABOVE", (0, 0), (-1, 0), 0.6, "black"),
                         ("LINEBELOW", (0, -1), (-1, -1), 0.6, "black"),
@@ -1123,6 +1043,8 @@ def _build_final_pdf(results: dict, numbers: dict) -> None:
             )
             story.append(pdf_table)
             story.append(Spacer(1, 0.18 * cm))
+            if table_idx < len(source_doc.tables) - 1:
+                story.append(PageBreak())
     pdf.build(story)
 
 
@@ -1150,10 +1072,11 @@ def build_paper(results: dict) -> None:
         doc,
         "本文基于中国人民银行货币政策执行报告和公开金融市场数据，研究央行沟通文本与短期市场反应之间的经验关系。"
         "正式样本锁定为2006年第1季度至2025年第4季度，2026年第1季度仅保留在文本数据库中而不进入正式估计。"
-        f"核心主检验以政策指引章节扩展窗口TF-IDF创新度解释报告发布后五个交易日股票实际波动率，"
+        "核心主检验以政策指引章节扩展窗口TF-IDF创新度解释报告发布后五个交易日股票实际波动率，"
         f"创新度早期样本系数为{_fmt(numbers['stock_beta'])}，HC3 p值为{_fmt(numbers['stock_p'])}，"
-        f"2019年后总效应为{_fmt(numbers['stock_total'])}。债券探索以跨拟合政策语调和收益率曲线斜率为核心，"
-        f"未预期语调主系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}。"
+        f"2019年后总效应为{_fmt(numbers['stock_total'])}。原词典语调构造的未预期政策指标在收益率曲线斜率模型中的"
+        f"系数为{_fmt(numbers['curve_beta'])}，p值为{_fmt(numbers['curve_p'])}；进一步使用按报告交叉拟合的监督政策语调后，"
+        f"政策相关句均值系数为{_fmt(numbers['cross_coef'])}，p值为{_fmt(numbers['cross_p'])}，未获得稳定债券市场证据。"
         f"人工标注验证覆盖{results['text_validation']['total_sentences']}句，字符TF-IDF与LinearSVC提供独立文本测量检验。"
         "全文强调可复现的数据处理、文本特征工程、分组交叉验证和金融事件研究，不把方向一致解释为统计显著。"
     )
@@ -1187,7 +1110,9 @@ def build_paper(results: dict) -> None:
         "本文使用两层文本测量。第一层是可解释词典：中文金融情感词典[4]提供一般正负向金融词，PBC领域词典区分偏宽松和偏收紧表达，并对增长、通胀、风险、汇率、金融稳定和房地产六类主题计算连续关注度。第二层是监督验证：在人工标注句子上使用字符TF-IDF和LinearSVC，不引入大型预训练模型。",
         "语境门控先判断句子是否处于货币政策语境中，再解释鹰鸽方向。这样可以把政策四分类和条件三分类分开：四分类检验dovish、hawkish、neutral和irrelevant；条件三分类只在人工标为政策相关的句子中比较dovish、hawkish和neutral。",
         f"实时重打分的人工验证结果显示，情感三分类准确率为{_fmt(numbers['sentiment_acc'])}，Macro-F1为{_fmt(numbers['sentiment_f1'])}；政策四分类准确率为{_fmt(numbers['stance_acc'])}，Macro-F1为{_fmt(numbers['stance_f1'])}；条件三分类准确率为{_fmt(numbers['direction_acc'])}，Macro-F1为{_fmt(numbers['direction_f1'])}；主题分类准确率为{_fmt(numbers['topic_acc'])}，Macro-F1为{_fmt(numbers['topic_f1'])}。",
+        f"字符TF-IDF+LinearSVC的按报告分组交叉验证显示，情感Accuracy为{_fmt(numbers['svc_sentiment_acc'])}、Macro-F1为{_fmt(numbers['svc_sentiment_f1'])}；政策四分类Accuracy为{_fmt(numbers['svc_stance_acc'])}、Macro-F1为{_fmt(numbers['svc_stance_f1'])}；条件三分类Accuracy为{_fmt(numbers['svc_direction_acc'])}、Macro-F1为{_fmt(numbers['svc_direction_f1'])}；主题硬分类Accuracy为{_fmt(numbers['svc_topic_acc'])}、Macro-F1为{_fmt(numbers['svc_topic_f1'])}。",
         "监督验证采用按报告分组的交叉验证，而不是随机句子切分。央行报告中有大量模板化表达，如果相似句子同时出现在训练集和测试集，模型看似准确，实则只是在识别固定句式。按报告分组以后，测试折中的句子来自未见过的报告，指标更接近未来季度应用场景。近重复文本合并折号进一步降低公式化表述造成的泄漏。",
+        "主题硬分类的Macro-F1明显低于情感和政策方向任务，因此主题模块不作为监督分类核心结果。正式研究使用连续主题关注度描述增长、通胀、风险、汇率、金融稳定和房地产等语境变化，避免把稀疏主题标签误写成稳定分类器。",
         "学习曲线的作用不是证明当前人工标签已经充分，而是说明继续增加标签的边际收益和薄弱类别。若训练比例提高后Macro-F1仍然波动，说明类别稀疏和句式相似性仍在限制泛化；若准确率上升但少数类别召回率低，说明模型主要学到了多数类。本文据此把人工验证定位为测量可靠性检查，而不是用监督模型替代全部文本指标。",
         "分组交叉验证同时按报告和近重复句子合并折号，防止同一报告或高度公式化表述跨折泄漏。学习曲线表明，240句人工样本已经足以暴露词典和轻量监督模型的主要误差来源，但对少数类别的稳定识别仍然受样本量限制。后续若增加标注，应优先补充hawkish、negative和房地产主题句，而不是为追求显著性改动已有标签。",
     ]:
@@ -1195,13 +1120,45 @@ def build_paper(results: dict) -> None:
 
     validation_table = pd.DataFrame(
         [
-            {"task": "sentiment", "accuracy": numbers["sentiment_acc"], "macro_f1": numbers["sentiment_f1"]},
-            {"task": "policy_four_class", "accuracy": numbers["stance_acc"], "macro_f1": numbers["stance_f1"]},
-            {"task": "policy_direction", "accuracy": numbers["direction_acc"], "macro_f1": numbers["direction_f1"]},
-            {"task": "topic", "accuracy": numbers["topic_acc"], "macro_f1": numbers["topic_f1"]},
+            {
+                "method": "initial_dictionary_baseline",
+                "sentiment_acc": "NA",
+                "sentiment_f1": "NA",
+                "policy_acc": "NA",
+                "policy_f1": "NA",
+                "direction_acc": "NA",
+                "direction_f1": "NA",
+                "topic_acc": "NA",
+                "topic_f1": "NA",
+                "note": "仅作领域迁移失败基准；未作为正式指标文件保存",
+            },
+            {
+                "method": "current_lexicon_context_gate",
+                "sentiment_acc": numbers["sentiment_acc"],
+                "sentiment_f1": numbers["sentiment_f1"],
+                "policy_acc": numbers["stance_acc"],
+                "policy_f1": numbers["stance_f1"],
+                "direction_acc": numbers["direction_acc"],
+                "direction_f1": numbers["direction_f1"],
+                "topic_acc": numbers["topic_acc"],
+                "topic_f1": numbers["topic_f1"],
+                "note": f"语境门控改写{numbers['context_gate_changed_count']}句，门控为irrelevant共{numbers['n_gated_irrelevant']}句",
+            },
+            {
+                "method": "char_tfidf_linearsvc_groupcv",
+                "sentiment_acc": numbers["svc_sentiment_acc"],
+                "sentiment_f1": numbers["svc_sentiment_f1"],
+                "policy_acc": numbers["svc_stance_acc"],
+                "policy_f1": numbers["svc_stance_f1"],
+                "direction_acc": numbers["svc_direction_acc"],
+                "direction_f1": numbers["svc_direction_f1"],
+                "topic_acc": numbers["svc_topic_acc"],
+                "topic_f1": numbers["svc_topic_f1"],
+                "note": f"按报告和近重复文本分组，报告组数{numbers['svc_n_groups']}",
+            },
         ]
     )
-    _add_three_line_table(doc, validation_table, "表1  文本测量验证结果", "注：指标来自当前词典实时重打分和固定监督验证流程。")
+    _add_three_line_table(doc, validation_table, "表1  文本测量模型比较", "注：数值均来自正式验证结果文件；主题硬分类仅作辅助诊断，正式解释使用连续主题关注度。")
 
     _add_level1_heading(doc, "四、政策指引创新度与连续主题关注")
     for text in [

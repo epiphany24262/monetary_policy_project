@@ -22,7 +22,7 @@ from scipy.optimize import minimize
 from scipy.special import gammaln
 from scipy import stats as scipy_stats
 
-from ..paths import OUTPUT_DIR, ROOT
+from ..paths import OUTPUT_DIR, ROOT, as_posix_relative
 from ..sample import is_in_formal_sample, sample_bounds
 
 
@@ -577,7 +577,7 @@ def build_daily_egarch_dataset(stock: pd.DataFrame, events: pd.DataFrame, stock_
         "novelty_raw_std": novelty_std,
         "novelty_standardization_scope": "79 report events",
         "mapped_unique_policy_action_trading_days": int(len(mapped_dates)),
-        "policy_operation_source": str(policy_path.relative_to(ROOT)),
+        "policy_operation_source": as_posix_relative(policy_path),
         "policy_operation_mapping_rule": "effective_date mapped to the next available CSI300 trading day; multiple operations on the same trading day count once",
         "policy_operation_type_counts": {str(k): int(v) for k, v in operation_type_counts.items()},
         "return_data_sha256": pandas_frame_sha256(daily, ["date", "return"]),
@@ -1354,7 +1354,7 @@ def run_full_sample_conditional_egarch_x(
         daily,
         hashes,
         baseline,
-        nuisance_parameter_source=str(baseline_path),
+        nuisance_parameter_source=as_posix_relative(baseline_path),
         n_perm=n_perm,
         seed=seed,
     )

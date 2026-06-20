@@ -15,10 +15,6 @@ from .analysis.stock_returns import run_stock_return_models
 from .analysis.stock_volatility import run_stock_volatility_models, write_egarch
 from .analysis.yield_curve import run_yield_curve_models
 from .analysis.egarch_x import (
-    run_egarch_x,
-    run_egarch_x_sensitivity,
-    permutation_test_novelty,
-    write_egarch_x_results,
     build_daily_egarch_dataset,
     run_locked_full_joint_mle,
     run_fixed_nuisance_conditional_egarch_x,
@@ -34,8 +30,8 @@ from .data.market_prices import load_stock_prices
 from .data.pbc_reports import load_full_texts, load_report_metadata, load_section_texts
 from .events.event_calendar import load_event_calendar
 from .events.event_panel import build_stock_event_panel, build_stock_volatility_paths, build_yield_curve_event_panel
-from .paths import FIGURES_DIR, OUTPUT_DIR, PAPER_DIR, PROCESSED_DIR, RESEARCH_DIR, RESULTS_DIR, TABLES_DIR, ensure_dirs, ROOT
-from .reporting.delivery_builder import build_final_submission
+from .paths import FIGURES_DIR, OUTPUT_DIR, PAPER_DIR, PROCESSED_DIR, RESEARCH_DIR, RESULTS_DIR, TABLES_DIR, ensure_dirs, ROOT, as_posix_relative
+from .reporting.delivery_builder import build_final_submission, write_submission_manifests
 from .reporting.notebook_builder import build_notebook, execute_notebook
 from .reporting.paper_builder import build_paper, inspect_pdf
 from .sample import filter_formal_sample, is_in_formal_sample, sample_bounds, verify_final_analysis_plan
@@ -278,7 +274,11 @@ def build_text_features() -> pd.DataFrame:
     return features
 
 
-def build_results(recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
+def build_results(
+    recompute_heavy: bool = False,
+    recompute_diagnostics: bool = False,
+    recompute_text_diagnostics: bool = False,
+) -> dict:
     ensure_dirs()
     verify_final_analysis_plan()
     build_research_documents()
@@ -294,7 +294,7 @@ def build_results(recompute_heavy: bool = False, recompute_diagnostics: bool = F
     )
 
     # ── Supervised learning curves ──
-    learning_curves = _run_learning_curves()
+    learning_curves = _run_learning_curves(recompute=recompute_text_diagnostics)
 
     stock_panel = build_stock_event_panel(text_features)
     stock_panel.to_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv", index=False, encoding="utf-8-sig")
@@ -317,11 +317,11 @@ def build_results(recompute_heavy: bool = False, recompute_diagnostics: bool = F
     )
 
     # ── Power analysis ──
-    power_results = run_power_analysis(stock_panel)
+    power_results = _run_power_analysis_cached(stock_panel, recompute=recompute_text_diagnostics)
     write_power_outputs(power_results)
 
     # ── Cross-fitted policy tone for bond exploration ──
-    cross_fitted_summary = _run_cross_fitted_bonds(curve_panel, text_features)
+    cross_fitted_summary = _run_cross_fitted_bonds(curve_panel, text_features, recompute=recompute_text_diagnostics)
     desc = descriptive_stats(
         stock_panel.merge(curve_panel[["event_id", "delta_level_bp_0_3", "delta_slope_bp_0_3", "delta_curvature_bp_0_3"]], on="event_id", how="left"),
         [
@@ -363,7 +363,11 @@ def build_results(recompute_heavy: bool = False, recompute_diagnostics: bool = F
     curve_table.to_csv(RESULTS_DIR / "yield_curve_results.csv", index=False, encoding="utf-8-sig")
     robust_table.to_csv(RESULTS_DIR / "robustness_results.csv", index=False, encoding="utf-8-sig")
     legacy = ROOT / "output" / "results" / "primary" / "PRIMARY_RESULT_LOCK.json"
-    shutil.copy2(legacy, RESULTS_DIR / "legacy_primary_result.json")
+    legacy_copy = RESULTS_DIR / "legacy_primary_result.json"
+    if legacy.exists():
+        shutil.copy2(legacy, legacy_copy)
+    elif not legacy_copy.exists():
+        raise FileNotFoundError("Missing legacy primary result: output/results/legacy_primary_result.json")
 
     plot_tone_series(text_features, FIGURES_DIR / "figure1_tone_series.png")
     plot_similarity(text_features, FIGURES_DIR / "figure2_similarity.png")
@@ -455,8 +459,33 @@ def _run_text_model_evaluation() -> dict:
     }
 
 
-def _run_learning_curves() -> dict:
+def _run_learning_curves(recompute: bool = False) -> dict:
     """Generate learning curves for sentiment, stance, and topic."""
+    diag = OUTPUT_DIR / "diagnostics"
+    curve_paths = {
+        "sentiment": diag / "learning_curve_sentiment.csv",
+        "policy_stance": diag / "learning_curve_policy_stance.csv",
+        "topic": diag / "learning_curve_topic.csv",
+    }
+    if not recompute and all(path.exists() for path in curve_paths.values()):
+        curves = {task: pd.read_csv(path) for task, path in curve_paths.items()}
+        summary_rows = []
+        for task, df in curves.items():
+            for _, row in df.iterrows():
+                summary_rows.append(
+                    {
+                        "task": task,
+                        "train_ratio": row.get("train_ratio"),
+                        "accuracy": row.get("accuracy"),
+                        "macro_f1": row.get("macro_f1"),
+                        "n": row.get("n"),
+                    }
+                )
+        summary = pd.DataFrame(summary_rows)
+        TABLES_DIR.mkdir(parents=True, exist_ok=True)
+        summary.to_excel(TABLES_DIR / "table_learning_curve_summary.xlsx", index=False)
+        return {"curves": {k: v.to_dict(orient="records") for k, v in curves.items()}, "summary": summary_rows, "cache_status": "hit"}
+
     filled = load_filled_annotations()
     curves = {}
     for task, label_col in [
@@ -475,7 +504,6 @@ def _run_learning_curves() -> dict:
         )
         curves[task] = df_curve
         # Save
-        diag = OUTPUT_DIR / "diagnostics"
         diag.mkdir(parents=True, exist_ok=True)
         df_curve.to_csv(diag / f"learning_curve_{task}.csv", index=False, encoding="utf-8-sig")
     # Summary table
@@ -486,80 +514,14 @@ def _run_learning_curves() -> dict:
     summary = pd.DataFrame(summary_rows)
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     summary.to_excel(TABLES_DIR / "table_learning_curve_summary.xlsx", index=False)
-    return {"curves": {k: v.to_dict(orient="records") for k, v in curves.items()}, "summary": summary_rows}
+    return {"curves": {k: v.to_dict(orient="records") for k, v in curves.items()}, "summary": summary_rows, "cache_status": "miss"}
 
 
-def _run_daily_egarch_x_fast(stock_panel: pd.DataFrame) -> dict:
-    """Fast EGARCH-X via arch library (Student-t + Normal)."""
-    from arch import arch_model
-    stock = load_stock_prices()
-    events = load_event_calendar()
-    events = events.merge(stock_panel[["event_id", "guidance_novelty", "action_nearby_core"]], on="event_id", how="left")
-
-    stock["report_day"] = 0.0
-    stock["novelty_event"] = 0.0
-    mapping = {}
-    for _, ev in events.iterrows():
-        d = pd.to_datetime(ev["equity_event_date"]).date()
-        mapping[d] = ev.get("guidance_novelty", 0)
-    stock["report_day"] = stock["date"].isin(set(pd.to_datetime(list(mapping.keys())))).astype(float)
-    stock["novelty_event"] = stock["date"].dt.date.map(mapping).fillna(0.0)
-
-    returns = stock["simple_return"].dropna() * 100  # percent returns
-    X = stock[["report_day", "novelty_event"]].loc[returns.index].fillna(0)
-
-    results = {}
-    for dist_name, dist_param in [("student_t", "t"), ("normal", "normal")]:
-        try:
-            model = arch_model(
-                returns, x=X, mean="ARX", lags=1,
-                vol="EGARCH", p=1, o=1, q=1,
-                dist=dist_param,
-            )
-            fit = model.fit(disp="off", show_warning=False)
-            exog_names = [f"exog_{c}" for c in X.columns]
-            exog_params = {}
-            for i, col in enumerate(exog_names):
-                if col in fit.params:
-                    exog_params[col] = float(fit.params[col])
-            results[dist_name] = {
-                "status": "ok",
-                "converged": bool(fit.convergence_flag == 0),
-                "aic": float(fit.aic),
-                "nobs": int(fit.nobs),
-                "params": {k: float(v) for k, v in fit.params.items()},
-                "exog_params": exog_params,
-                "distribution": dist_name,
-                "novelty_coef": exog_params.get("exog_novelty_event", None),
-                "report_day_coef": exog_params.get("exog_report_day", None),
-            }
-        except Exception as e:
-            results[dist_name] = {"status": "failed", "error": str(e)}
-
-    # Permutation test (simplified)
-    rng = np.random.default_rng(2026)
-    base_coef = abs(results.get("student_t", {}).get("novelty_coef") or 0)
-    count = 0
-    n_perm = 200
-    for _ in range(n_perm):
-        perm_nov = rng.permutation(X["novelty_event"].to_numpy())
-        X_perm = X.copy()
-        X_perm["novelty_event"] = perm_nov
-        try:
-            m = arch_model(returns, x=X_perm, mean="ARX", lags=1, vol="EGARCH", p=1, o=1, q=1, dist="t")
-            f = m.fit(disp="off", show_warning=False)
-            if abs(float(f.params.get("novelty_event", 0))) >= base_coef:
-                count += 1
-        except Exception:
-            continue
-    perm_p = (count + 1) / (n_perm + 1)
-
-    write_egarch_x_results(
-        RESULTS_DIR / "daily_egarch_x_results.json",
-        results.get("student_t", {}),
-        pd.DataFrame([{"date_window": "D0", "distribution": d, **r} for d, r in results.items()]),
-    )
-    return {"main": results.get("student_t", {}), "normal": results.get("normal", {}), "permutation_p_novelty": float(perm_p)}
+def _run_power_analysis_cached(stock_panel: pd.DataFrame, recompute: bool = False) -> pd.DataFrame:
+    path = OUTPUT_DIR / "diagnostics" / "market_power_analysis.csv"
+    if not recompute and path.exists():
+        return pd.read_csv(path)
+    return run_power_analysis(stock_panel)
 
 
 def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
@@ -605,7 +567,7 @@ def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False
         daily,
         hashes,
         nuisance,
-        nuisance_parameter_source=str(locked_path.relative_to(ROOT)),
+        nuisance_parameter_source=as_posix_relative(locked_path),
         n_perm=99,
         seed=2026,
         output_json=conditional_path,
@@ -635,8 +597,24 @@ def _run_daily_egarch_x(stock_panel: pd.DataFrame, recompute_heavy: bool = False
     }
 
 
-def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFrame) -> dict:
+def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFrame, recompute: bool = False) -> dict:
     """Cross-fitted policy tone → bond yield curve exploratory analysis."""
+    sent_pred_path = PROCESSED_DIR / "cross_fitted_sentence_predictions.csv"
+    report_tone_path = PROCESSED_DIR / "cross_fitted_report_policy_tone.csv"
+    bond_path = RESULTS_DIR / "cross_fitted_bond_exploration.csv"
+    if not recompute and sent_pred_path.exists() and report_tone_path.exists() and bond_path.exists():
+        sent_preds = pd.read_csv(sent_pred_path)
+        report_tone = pd.read_csv(report_tone_path)
+        bond_table = pd.read_csv(bond_path)
+        TABLES_DIR.mkdir(parents=True, exist_ok=True)
+        bond_table.to_excel(TABLES_DIR / "table_cross_fitted_bond_exploration.xlsx", index=False)
+        return {
+            "bond_exploration": bond_table.to_dict(orient="records"),
+            "n_cross_fitted_reports": int(len(report_tone)),
+            "n_cross_fitted_sentences": int(len(sent_preds)),
+            "cache_status": "hit",
+        }
+
     filled = load_filled_annotations()
     guidance = filled[filled["section"] == "guidance"].copy()
     if len(guidance) < 20:
@@ -682,20 +660,47 @@ def _run_cross_fitted_bonds(curve_panel: pd.DataFrame, text_features: pd.DataFra
         "bond_exploration": bond_rows,
         "n_cross_fitted_reports": int(len(report_tone)),
         "n_cross_fitted_sentences": int(len(sent_preds)),
+        "cache_status": "miss",
     }
 
 
-def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False, recompute_diagnostics: bool = False) -> dict:
-    results = build_results(recompute_heavy=recompute_heavy, recompute_diagnostics=recompute_diagnostics)
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _executed_code_cells(path: Path) -> int:
+    try:
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    return sum(
+        1
+        for cell in notebook.get("cells", [])
+        if cell.get("cell_type") == "code" and cell.get("execution_count") is not None
+    )
+
+
+def run_pipeline(
+    execute_nb: bool = True,
+    recompute_heavy: bool = False,
+    recompute_diagnostics: bool = False,
+    recompute_text_diagnostics: bool = False,
+) -> dict:
+    results = build_results(
+        recompute_heavy=recompute_heavy,
+        recompute_diagnostics=recompute_diagnostics,
+        recompute_text_diagnostics=recompute_text_diagnostics,
+    )
     build_notebook()
     build_paper(results)
-    pdf_check = inspect_pdf()
-    submission_summary = build_final_submission()
     if execute_nb:
         notebook_result = execute_notebook()
-        submission_summary = build_final_submission()
     else:
         notebook_result = {"returncode": 0, "skipped": True}
+    pdf_check = inspect_pdf()
+    notebook_path = ROOT / "notebooks" / "货币政策沟通与金融市场反应.ipynb"
     summary = {
         "status": "PASS",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -714,12 +719,21 @@ def run_pipeline(execute_nb: bool = True, recompute_heavy: bool = False, recompu
         "egarch_x_formal_lr_p": results["egarch_x"]["main"].get("formal_lr_p_value"),
         "egarch_x_perm_p": results["egarch_x"]["permutation_p_novelty"],
         "notebook_returncode": notebook_result["returncode"],
+        "notebook_executed_code_cells": _executed_code_cells(notebook_path),
         "pdf_pages": pdf_check["page_count"],
-        "final_submission_files": submission_summary["included_files"],
+        "final_submission_files": None,
     }
     (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     submission_summary = build_final_submission()
     summary["final_submission_files"] = submission_summary["included_files"]
+    submission_notebook = ROOT / "final_submission" / "notebooks" / "货币政策沟通与金融市场反应.ipynb"
+    if notebook_path.exists() and submission_notebook.exists():
+        summary["root_notebook_sha256"] = _sha256_file(notebook_path)
+        summary["submission_notebook_sha256"] = _sha256_file(submission_notebook)
+        summary["notebook_hash_match"] = summary["root_notebook_sha256"] == summary["submission_notebook_sha256"]
     (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    build_final_submission()
+    final_summary = ROOT / "final_submission" / "output" / "results" / "refactor_run_summary.json"
+    if final_summary.parent.exists():
+        final_summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_submission_manifests()
     return summary

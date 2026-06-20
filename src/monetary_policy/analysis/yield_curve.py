@@ -31,7 +31,10 @@ def run_yield_curve_models(panel: pd.DataFrame) -> pd.DataFrame:
         row["permutation_p_base"] = permutation_pvalue(panel, y, x, "guidance_unexpected_tone")
         row["permutation_p_interaction"] = permutation_interaction_pvalue(panel, y, x, "guidance_unexpected_tone_x_post_2019")
         rows.append(row)
-    legacy = json.loads((ROOT / "output/results/primary/PRIMARY_RESULT_LOCK.json").read_text(encoding="utf-8"))
+    legacy_path = ROOT / "output/results/legacy_primary_result.json"
+    if not legacy_path.exists():
+        legacy_path = ROOT / "output/results/primary/PRIMARY_RESULT_LOCK.json"
+    legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
     rows.append(
         {
             "model": "legacy_1y_m1_p3",

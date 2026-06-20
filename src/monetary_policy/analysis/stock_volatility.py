@@ -90,12 +90,13 @@ def run_egarch_diagnostic(panel: pd.DataFrame) -> dict:
         result = model.fit(disp="off", show_warning=False)
         return {
             "status": "ok",
+            "method": "legacy_arx_mean_equation_diagnostic_not_formal_daily_egarch_x",
             "converged": bool(result.convergence_flag == 0),
             "nobs": int(result.nobs),
             "aic": float(result.aic),
             "params": {k: float(v) for k, v in result.params.items()},
-            "interpretation_warning": "The text variable enters the ARX mean equation, not the EGARCH variance equation. This diagnostic must not be interpreted as a direct variance-equation text effect.",
-            "note": "EGARCH is retained only as a market-volatility diagnostic; realized volatility event regression remains the core volatility test.",
+            "interpretation_warning": "This legacy diagnostic places the text variable in an ARX mean equation only. It is not the formal Student-t EGARCH-X robustness model and is not used for paper inference.",
+            "note": "The event-level realized volatility regression remains the core volatility test; the formal daily EGARCH-X result is produced by analysis/egarch_x.py.",
         }
     except Exception as exc:
         return {"status": "failed", "error": str(exc), "note": "Realized volatility model remains the core specification."}

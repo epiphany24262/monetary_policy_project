@@ -20,6 +20,30 @@ FINAL_SUBMISSION_DIR = ROOT / "final_submission"
 RESEARCH_DIR = ROOT / "research"
 
 
+def normalize_relative_path(value: str | Path) -> Path:
+    """Return a platform-native Path from a stored relative path.
+
+    CSV artifacts are written with POSIX separators.  This reader still accepts
+    older Windows-style separators so the legacy processed data remain usable.
+    """
+    return Path(str(value).replace("\\", "/"))
+
+
+def root_relative_path(value: str | Path) -> Path:
+    path = normalize_relative_path(value)
+    return path if path.is_absolute() else ROOT / path
+
+
+def as_posix_relative(path: str | Path, base: Path = ROOT) -> str:
+    p = Path(path)
+    try:
+        if p.is_absolute():
+            return p.relative_to(base).as_posix()
+    except ValueError:
+        pass
+    return str(path).replace("\\", "/")
+
+
 def ensure_dirs() -> None:
     for path in [
         PROCESSED_DIR,
@@ -34,4 +58,3 @@ def ensure_dirs() -> None:
         RESEARCH_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
-

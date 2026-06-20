@@ -280,10 +280,9 @@ def build_combined_lexicon() -> Lexicon:
     du_pos, du_neg = read_du_lexicon(du_path)
     pbc = pbc_domain_words()
     # General financial sentiment: keep the published dictionaries intact.
-    # Note: sentence-level sentiment accuracy is low (~26%) because these
-    # dictionaries are designed for document-level financial text analysis.
-    # The document-level aggregated indicators used in regressions are more
-    # robust than sentence-level labels. See text_validation_report.md.
+    # Sentence-level sentiment accuracy remains low in the current validation
+    # file (about 0.30), so lexicon scores are treated as transparent text
+    # measurements rather than stand-alone classifiers.
     positive = jiang_pos | du_pos | {"稳健", "改善", "恢复", "支持", "增强", "合理充裕"}
     negative = jiang_neg | du_neg | {"下行压力", "不确定性", "冲击", "压力", "风险暴露"}
     revision_note = (

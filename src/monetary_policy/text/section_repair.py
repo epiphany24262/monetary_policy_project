@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..paths import OUTPUT_DIR, ROOT
+from ..paths import OUTPUT_DIR, ROOT, root_relative_path
 
 
 REPAIR_RULES = {
@@ -46,6 +46,8 @@ def _last_body_extract(text: str, start_pattern: str, end_pattern: str) -> tuple
 
 def repair_guidance_sections() -> pd.DataFrame:
     sections = pd.read_csv(ROOT / "data/processed/report_sections.csv")
+    if "local_path" in sections.columns:
+        sections["local_path"] = sections["local_path"].astype(str).str.replace("\\", "/", regex=False)
     rows = []
     for rid, rule in REPAIR_RULES.items():
         mask = (sections["report_id"] == rid) & (sections["section"] == "guidance")
@@ -53,7 +55,7 @@ def repair_guidance_sections() -> pd.DataFrame:
         text_path = ROOT / "data/interim/report_text" / f"{rid}_clean_text.txt"
         text = text_path.read_text(encoding="utf-8", errors="ignore")
         extracted, extraction_rule = _last_body_extract(text, rule["start"], rule["end"])
-        local_path = ROOT / str(old["local_path"])
+        local_path = root_relative_path(old["local_path"])
         new_found = len(extracted) >= 200
         if new_found:
             local_path.parent.mkdir(parents=True, exist_ok=True)
