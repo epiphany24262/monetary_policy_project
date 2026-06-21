@@ -130,19 +130,11 @@ def _manifest_rows() -> list[dict[str, int | str]]:
 def _write_manifest(path: Path, rows: list[dict[str, int | str]]) -> None:
     manifest_rel = "delivery/FINAL_SUBMISSION_MANIFEST.csv"
     manifest_rows = [row for row in rows if row["path"] != manifest_rel]
-    manifest_rows.append({"path": manifest_rel, "bytes": 0})
-    previous_size = None
-    for _ in range(8):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["path", "bytes"])
-            writer.writeheader()
-            writer.writerows(manifest_rows)
-        current_size = path.stat().st_size
-        if current_size == previous_size:
-            break
-        manifest_rows[-1]["bytes"] = current_size
-        previous_size = current_size
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["path", "bytes"])
+        writer.writeheader()
+        writer.writerows(manifest_rows)
 
 
 def write_submission_manifests() -> dict:
@@ -163,7 +155,7 @@ def write_submission_manifests() -> dict:
         "正式提交建议压缩该目录内容为 `final_submission.zip`。\n",
         encoding="utf-8",
     )
-    return {"included_files": len(rows) + 1, "manifest": "delivery/FINAL_SUBMISSION_MANIFEST.csv"}
+    return {"included_files": len(rows), "manifest": "delivery/FINAL_SUBMISSION_MANIFEST.csv"}
 
 
 def build_final_submission() -> dict:

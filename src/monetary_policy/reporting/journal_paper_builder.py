@@ -28,10 +28,12 @@ from .journal_style import (
     add_body_section,
     clear_table_borders,
     configure_section,
+    _restart_page_numbering,
     mark_row_no_split,
     merge_row_cells,
     set_cell_border,
     set_cell_text,
+    set_figure_paragraph_format,
     set_paragraph_format,
     set_run_font,
     set_table_width,
@@ -39,9 +41,22 @@ from .journal_style import (
 from .journal_tables import JournalTables, fmt, write_journal_tables
 
 
+# Explicit vertical border configuration per table.
+# A value of False means no vertical separator after the column.
+TABLE_VERTICAL_CONFIG = {
+    1: {},
+    2: {},
+    3: {},
+    4: {},
+    5: {},
+}
+
+# Keep track of table count for vertical border application
+_CURRENT_TABLE_INDEX = 0
+
 DOCX_PATH = PAPER_DIR / "课程论文_提交版.docx"
 PDF_PATH = PAPER_DIR / "课程论文_提交版.pdf"
-COVER_PATH = ROOT / "references" / "journal_format" / "课程论文封面.docx"
+COVER_PATH = ROOT / "references/journal_format/课程论文封面.docx"
 REVIEW_DIR = OUTPUT_DIR / "diagnostics" / "journal_review"
 
 
@@ -108,10 +123,11 @@ def build_journal_paper(results: dict) -> dict:
     try:
         _sanitize_document(doc)
     except Exception:
-        pass
+        print("Saving to", str(DOCX_PATH))
     doc.save(str(DOCX_PATH))
     _normalize_docx_spacing_rules(DOCX_PATH)
     export_pdf_with_word()
+    print("Exporting data sources summary...")
     return inspect_journal_pdf()
 
 
@@ -196,10 +212,12 @@ def _new_document_with_cover() -> Document:
     configure_section(doc.sections[0])
     cover = doc.sections[0]
     cover.different_first_page_header_footer = True
+    _restart_page_numbering(cover, 0)
     for part in [cover.header, cover.footer, cover.first_page_header, cover.first_page_footer]:
         for paragraph in part.paragraphs:
             paragraph.clear()
     add_body_section(doc)
+    doc.settings.odd_and_even_pages_header_footer = True
     return doc
 
 
@@ -274,12 +292,12 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
         "字符TF-IDF适合这个样本规模。中文央行文本中的政策含义常体现在短语和固定搭配上，字符n元特征能够捕捉“合理充裕”“精准有力”“不搞大水漫灌”等局部表达。LinearSVC的线性结构使特征权重较容易解释，也避免在小样本人工标注上使用过于复杂的模型。",
     ]:
         _add_body(doc, text)
+    _add_figure(doc, FIGURES_DIR / figures.figure2, "图2  文本分类模型的分组交叉验证学习曲线")
 
     _add_heading2(doc, "（三）文本测量结果")
     _add_body(doc, "表2中的三类方法处在不同的测量层级。初始词典只作为方法起点，不报告正式验证指标；语境门控词典提供可解释的规则基准；监督模型用于检验文本信息是否能在未见过的报告中保持一定辨识力。主题硬分类的稳定性弱于情感和政策倾向，因此正文只把连续主题关注度用于经济背景解释。")
     _add_table(doc, "表2  文本测量方法比较", tables.table2, note="注：Panel B只在政策相关句中区分偏松、偏紧和中性；缺失值表示该方法未作为正式可比指标保存。")
 
-    doc.add_page_break()
     _add_heading1(doc, "四、政策指引创新度与股票市场反应")
     _add_heading2(doc, "（一）基准结果")
     for text in [
@@ -303,20 +321,20 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
         "散点图显示，高创新度报告并不总是对应高波动。货币政策沟通只是影响市场波动的因素之一，金融危机、疫情、海外利率和国内宏观数据都会改变短期市场状态。基准回归的意义在于，在控制前期波动和政策操作后，创新度仍与发布后波动存在正相关关系。",
     ]:
         _add_body(doc, text)
-    _add_figure(doc, FIGURES_DIR / figures.figure2, "图2  政策指引创新度与股票实际波动率")
+    _add_figure(doc, FIGURES_DIR / figures.figure3, "图3  政策指引创新度与股票实际波动率")
 
     _add_heading2(doc, "（三）日度波动稳健性")
     for text in [
         f"Student-t EGARCH-X模型使用{numbers.egarch_n}个连续交易日收益率和{numbers.egarch_events}个创新度事件。报告发布当日规格中，标准化创新度条件方差项系数为{fmt(numbers.egarch_novelty_coef)}，似然比检验p值为{fmt(numbers.egarch_lr_p)}，置换诊断p值为{fmt(numbers.egarch_perm_p)}。按一个标准差创新度换算，条件波动率约提高{fmt(numbers.egarch_vol_pct)}%。方向与股票事件级结果一致，但统计证据不足。",
         "EGARCH-X稳健性检验的意义在于使用完整日度序列刻画波动持续性和厚尾特征，而不是把事件窗口内少数交易日单独抽出估计。该模型没有推翻核心结果，也没有提供更强显著性证据。本文据此把日度模型定位为高级稳健性检验，而非替代股票事件级主检验。",
         "日度模型和事件级模型回答的问题并不相同。事件级模型把每期报告浓缩为一个短窗口反应，更直接对应“报告发布后市场是否更波动”；EGARCH-X模型则在长日度序列中估计报告日冲击对条件方差的边际贡献，同时吸收收益率自身的波动聚集。后者统计要求更高，尤其在报告事件只有季度频率时，弱显著性并不否定事件级结果。",
-        "Student-t分布的使用主要服务于金融收益率的厚尾特征。若忽略极端收益率，少数市场大幅波动日可能被条件方差方程误认为文本冲击；厚尾设定能够缓和这一问题。表4的Panel A同时给出报告发布当日、后一交易日以及当日与次日联合规格，目的是观察日期归属的敏感性，而不是重新选择更有利的主结果。",
+        "Student-t分布的使用主要服务于金融收益率的厚尾特征。若忽略极端收益率，少数市场大幅波动日可能被条件方差方程误认为文本冲击；厚尾设定能够缓和这一问题。表4同时给出报告发布当日、后一交易日以及当日与次日联合规格，目的是观察日期归属的敏感性，而不是重新选择更有利的主结果。",
         "EGARCH-X还允许正负收益冲击对未来波动产生非对称影响。股票市场下跌日通常伴随更高的条件波动，若模型只使用对称方差过程，可能把收益率自身的非对称反应误归因于报告事件。把文本创新度放入条件方差方程，而不是放入均值方程，可以更贴近本文关心的“波动率反应”问题。",
         "表4的日度结果应与表3一起阅读。表3的证据更直接、统计上也更强；表4提供的是在更完整波动动态下的方向检验。两者方向一致，说明核心发现没有因加入日度波动结构而反转；但表4的p值较大，说明这一高级规格并未把股票结果提升为更强的日度证据。",
     ]:
         _add_body(doc, text)
+    _add_table(doc, "表4  日度波动稳健性检验", tables.table4, note="")
 
-    doc.add_page_break()
     _add_heading1(doc, "五、政策语调与国债收益率曲线")
     _add_heading2(doc, "（一）未预期政策语调")
     for text in [
@@ -325,7 +343,7 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
         "未预期语调的构造以报告自身的历史规律为基准，试图区分常规表述和超出惯性的政策倾向变化。这个思路与董青马等（2024）强调的“潜在”未预期信息相呼应；本研究仅借鉴其问题意识，并不复制其完整识别框架。季度报告文本较长，且包含大量宏观判断，未预期语调进入债券回归后仍可能同时反映政策冲击和央行信息冲击。",
         "Nakamura和Steinsson（2018）、Jarocinski和Karadi（2020）的研究表明，央行信息效应可能使市场把政策消息理解为关于经济前景的信号。放在收益率曲线上，偏紧语调并不一定只推高短端利率；如果市场把它理解为经济韧性更强，也可能影响长端收益率。本文的债券结果不稳定，正反映了这类信息分解在季度文本场景中的困难。",
         "中国债券市场还受到资金面、监管预期和机构配置需求影响。季度报告发布时点附近，如果资金利率、公开市场操作或海外利率同步变化，收益率曲线可能先反映这些高频因素。文本语调变量在三日窗口中要与这些因素竞争解释力，得到弱结果并不奇怪。",
-        "曲线水平、斜率和曲率的经济含义不同。水平变化更接近整体利率环境，斜率变化反映短端和长端相对调整，曲率则对应中期限收益率的相对位置。政策语调若主要影响短端，斜率会变化；若市场同时调整增长和通胀预期，水平和曲率也可能移动。表4的Panel B把三类结果放在一起，正是为了避免只报告单一曲线因子。",
+        "曲线水平、斜率和曲率的经济含义不同。水平变化更接近整体利率环境，斜率变化反映短端和长端相对调整，曲率则对应中期限收益率的相对位置。政策语调若主要影响短端，斜率会变化；若市场同时调整增长和通胀预期，水平和曲率也可能移动。表5的Panel A把三类结果放在一起，正是为了避免只报告单一曲线因子。",
     ]:
         _add_body(doc, text)
 
@@ -333,7 +351,7 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
     for text in [
         f"跨拟合政策语调把人工标注句子的监督分类结果聚合到报告层面。政策相关句均值的主效应为{fmt(numbers.cross_coef)}，p值为{fmt(numbers.cross_p)}；2019年后总效应为{fmt(numbers.cross_total)}，总效应p值为{fmt(numbers.cross_total_p)}。该结果没有稳定改善债券解释力。",
         "跨拟合处理的价值在于降低训练集和解释变量之间的机械重合：每份报告的预测语调来自未使用该报告标注句训练的模型。问题也很清楚，人工标注样本只有240句，少数政策方向样本偏少，折外预测进入债券回归后噪声会被放大。因此，跨拟合监督语调更适合展示测量思路，而不是承担核心市场检验。",
-        "政策相关句均值是三种聚合方式中经济含义最清楚的一种。全部句子均值容易被宏观描述和背景性表述稀释，方向性句子均值又会丢掉大量中性但政策相关的信息。政策相关句均值保留了政策语境，同时减少无关句子的影响，因此正文用它报告主要跨拟合结果，并在表4中列出其他聚合方式作为对照。",
+        "政策相关句均值是三种聚合方式中经济含义最清楚的一种。全部句子均值容易被宏观描述和背景性表述稀释，方向性句子均值又会丢掉大量中性但政策相关的信息。政策相关句均值保留了政策语境，同时减少无关句子的影响，因此正文用它报告主要跨拟合结果，并在表5中列出其他聚合方式作为对照。",
         "监督语调没有稳定改善债券解释力，并不意味着人工标注或分类模型没有价值。它说明句子层方向识别和报告层市场反应之间还存在一个聚合与识别问题：报告可能同时出现偏松、偏紧和风险提示句，市场反应也可能取决于这些句子在报告结构中的位置，而不是简单平均后的得分。",
         "跨拟合结果还提醒我们，文本测量误差会在金融回归中被放大。句子分类即使在验证集上有较高准确率，聚合到报告层后仍可能因句子数量、章节位置和类别不平衡产生偏差。债券回归样本只有季度报告事件，解释变量的一点噪声就会显著影响系数稳定性。",
         "因此，跨拟合监督语调在本文中主要用于验证测量链条：人工标注能否支持监督分类，监督分类能否生成报告层语调，报告层语调进入债券模型后是否有清晰解释力。前两步结果相对可用，最后一步证据不足，这一层级差异本身就是研究结论的一部分。",
@@ -343,11 +361,10 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
     _add_heading2(doc, "（三）结果讨论")
     _add_body(doc, "股票和债券结果不一致，并不意外。股票波动率对不确定性本身敏感，文本创新度提高可能直接增加短期重新定价强度；债券收益率曲线则需要区分政策路径、宏观信息和期限溢价，单一语调变量难以同时捕捉这些渠道。McMahon、Schipke和Li（2018）指出，中国央行沟通仍处在制度化改进过程中，这也意味着不同市场吸收沟通信息的方式可能存在差异。")
     _add_body(doc, "从市场微观角度看，股票和债券投资者关注的信息集合也不同。股票投资者更关心盈利预期、风险偏好和流动性折现，报告文本一旦改变政策指引，估值分歧就可能放大；债券投资者则更关注未来利率路径和期限补偿，语调变化必须先被解释为短端、长端或期限溢价冲击，才会表现为清晰的曲线变化。")
-    _add_body(doc, "债券图把收益率曲线因子和未预期语调分组放在同一张图中。Panel A显示曲线水平、斜率和曲率在较长样本内同步波动但并非同一变量；Panel B显示不同语调分组在2019年前后没有形成稳定单调关系。图形证据与表4一致：债券市场存在反应，但反应方向不够稳定，不能写成与股票结果同等强度的结论。")
-    _add_table(doc, "表4  日度稳健性与债券市场探索结果", tables.table4, note="注：Panel A中报告发布后一交易日和当日与次日联合规格为日期敏感性诊断；Panel B、C为债券市场探索性结果。")
+    _add_body(doc, "债券图把收益率曲线因子和未预期语调分组放在同一张图中。Panel A显示曲线水平、斜率和曲率在较长样本内同步波动但并非同一变量；Panel B显示不同语调分组在2019年前后没有形成稳定单调关系。图形证据与表5一致：债券市场存在反应，但反应方向不够稳定，不能写成与股票结果同等强度的结论。")
+    _add_table(doc, "表5  国债市场探索性结果", tables.table5, note="")
     _add_figure(doc, FIGURES_DIR / figures.figure4, "图4  国债收益率曲线与未预期政策语调反应")
 
-    doc.add_page_break()
     _add_heading1(doc, "六、进一步检验与研究局限")
     _add_heading2(doc, "（一）样本量与检验功效")
     for text in [
@@ -355,11 +372,9 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
         "季度报告的天然频率限制了样本扩张速度。增加日度市场观测不能等同于增加报告事件，因为文本变量只在报告发布时变化。未来研究若要提高检验功效，更可行的方向是合并多类正式沟通文本，或在不牺牲事件定义清晰度的前提下引入公告、发布会和货币政策委员会例会材料。",
         "功效结果也解释了为什么本文保留方向一致但不显著的日度和债券结果。对于季度报告这种低频文本，分时期、分市场和分期限检验都会迅速消耗样本量。若只按显著性筛选结果，容易把样本噪声误写成稳健机制；若完全忽略不显著结果，又会高估文本指标的解释范围。本文把证据层级分开，正是为了避免这两种偏差。",
         "功效图并不用于宣称扩大样本后一定能得到显著结论。它展示的是在给定效应大小和方差估计下，事件数量对统计功效的机械影响。真正扩大样本时，新增沟通文本的类型、发布时间和市场环境都可能改变效应大小，因此功效曲线只能作为研究设计参考，而不是外推预测。",
-        "对课程研究而言，功效分析还有一个实用含义。很多金融事件研究在样本较小时会出现方向合理但p值较大的结果，此时最稳妥的写法不是反复更换窗口或变量，而是说明样本设计能够检验到多大的效应。图3显示，当前样本已能支持股票主线，但对债券和分时期扩展仍显不足。",
+        "对课程研究而言，功效分析还有一个实用含义。很多金融事件研究在样本较小时会出现方向合理但p值较大的结果，此时最稳妥的写法不是反复更换窗口或变量，而是说明样本设计能够检验到多大的效应。图2的学习曲线显示，文本分类在当前样本规模下情感和政策倾向识别尚有改善空间，但对债券和分时期扩展仍显不足。",
     ]:
         _add_body(doc, text)
-    _add_figure(doc, FIGURES_DIR / figures.figure3, "图3  市场检验功效与事件样本量")
-
     _add_heading2(doc, "（二）测量与识别局限")
     for text in [
         "本文仍有几项边界。第一，PDF抽取和章节识别会给早期报告带来文本噪声，虽然关键章节经过修复，但不能保证所有句子边界完全符合原始排版。第二，人工标注样本规模有限，监督模型对少数政策方向和稀疏主题的识别仍不稳定。第三，事件窗口不能完全隔离同期宏观数据、全球风险偏好和其他政策操作，因此短窗口回归应解释为条件相关关系，而不是完整因果识别。",
@@ -394,8 +409,16 @@ def _build_body(doc: Document, numbers: PaperNumbers, tables: JournalTables, fig
 def _add_front_matter(doc: Document, numbers: PaperNumbers) -> None:
     _add_title_line(doc, "中国货币政策报告文本特征")
     _add_title_line(doc, "与金融市场反应")
-    _add_centered(doc, "基于文本创新度、分组交叉验证与金融事件研究", size=12, cn_font=FONT_STYLE["body_cn"])
-    _add_centered(doc, "罗允绩", size=10.5, cn_font=FONT_STYLE["body_cn"])
+    # Subtitle
+    p_sub = doc.add_paragraph()
+    set_paragraph_format(p_sub, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=16, before_pt=2, after_pt=4, exact=False)
+    run_sub = p_sub.add_run("——基于Python文本量化、股票波动与国债收益率曲线的研究")
+    set_run_font(run_sub, FONT_STYLE["body_cn"], 12)
+    # Author in 楷体 三号(16pt)
+    p_author = doc.add_paragraph()
+    set_paragraph_format(p_author, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=20, before_pt=6, after_pt=6, exact=False)
+    run_author = p_author.add_run("罗允绩")
+    set_run_font(run_author, FONT_STYLE["author_cn"], PARAGRAPH_STYLE["author_size_pt"])
     _add_abstract_block(
         doc,
         "内容提要：",
@@ -407,29 +430,28 @@ def _add_front_matter(doc: Document, numbers: PaperNumbers) -> None:
         ),
     )
     _add_keywords(doc, "关键词：货币政策沟通；文本创新度；实际波动率；EGARCH-X；收益率曲线")
-    _add_centered(doc, "中图分类号：F822.0    文献标识码：A", size=9.5, cn_font=FONT_STYLE["body_cn"])
+    _add_centered(doc, "中图分类号：F832.0    文献标识码：A", size=PARAGRAPH_STYLE["abstract_size_pt"], cn_font=FONT_STYLE["body_cn"])
     _add_centered(doc, "Textual Features of China's Monetary Policy Reports and Financial Market Reactions", size=11, cn_font=FONT_STYLE["body_en"], bold=True)
-    _add_centered(doc, "LUO Yunji", size=9.5, cn_font=FONT_STYLE["body_en"])
+    _add_centered(doc, "LUO Yunji", size=PARAGRAPH_STYLE["abstract_size_pt"], cn_font=FONT_STYLE["body_en"])
     _add_english_abstract(
         doc,
         (
             "This paper studies quarterly monetary policy reports of the People's Bank of China from 2006Q1 to 2025Q4. "
             "It constructs an expanding-window TF-IDF novelty measure for policy guidance, validates text measurement with manual annotations, context gating, and grouped cross-validation, and links the text measures to stock and bond market reactions. "
             "The core event-level evidence shows a positive association between guidance novelty and five-day realized stock volatility. "
-            "A Student-t EGARCH-X model on the full daily return sequence yields a positive but statistically weaker volatility effect. "
+            "A Student-t EGARCH-X model estimated on the full daily return sequence yields a positive but statistically weaker volatility effect. "
             "Unexpected policy tone and cross-fitted supervised tone do not robustly explain the government bond yield curve, suggesting that bond-market communication effects are harder to separate from macro-information and term-premium channels."
         ),
     )
-    _add_centered(doc, "Key words: monetary policy communication; text novelty; realized volatility; EGARCH-X; yield curve", size=9.5, cn_font=FONT_STYLE["body_en"])
-    doc.add_page_break()
+    _add_centered(doc, "Key words: monetary policy communication; text novelty; realized volatility; EGARCH-X; yield curve", size=PARAGRAPH_STYLE["abstract_size_pt"], cn_font=FONT_STYLE["body_en"])
 
 
 def _add_title_line(doc: Document, text: str) -> None:
     paragraph = doc.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=28, before_pt=0, after_pt=5)
+    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=24, before_pt=0, after_pt=2)
     run = paragraph.add_run(text)
-    set_run_font(run, FONT_STYLE["title_cn"], 22, bold=True)
+    set_run_font(run, FONT_STYLE["title_cn"], 18, bold=False)
 
 
 def _add_centered(doc: Document, text: str, *, size: float, cn_font: str, bold: bool = False) -> None:
@@ -443,16 +465,16 @@ def _add_abstract_block(doc: Document, label: str, text: str) -> None:
     paragraph = doc.add_paragraph()
     set_paragraph_format(paragraph, line_pt=PARAGRAPH_STYLE["abstract_line_pt"], first_line_chars=0, before_pt=4, after_pt=0)
     run = paragraph.add_run(label)
-    set_run_font(run, FONT_STYLE["heading_cn"], PARAGRAPH_STYLE["abstract_size_pt"], bold=True)
+    set_run_font(run, FONT_STYLE["abstract_cn"], PARAGRAPH_STYLE["abstract_size_pt"], bold=True)
     body = paragraph.add_run(text)
-    set_run_font(body, FONT_STYLE["body_cn"], PARAGRAPH_STYLE["abstract_size_pt"])
+    set_run_font(body, FONT_STYLE["abstract_cn"], PARAGRAPH_STYLE["abstract_size_pt"])
 
 
 def _add_keywords(doc: Document, text: str) -> None:
     paragraph = doc.add_paragraph()
     set_paragraph_format(paragraph, line_pt=PARAGRAPH_STYLE["abstract_line_pt"], first_line_chars=0, before_pt=1, after_pt=1)
     run = paragraph.add_run(text)
-    set_run_font(run, FONT_STYLE["body_cn"], PARAGRAPH_STYLE["abstract_size_pt"])
+    set_run_font(run, FONT_STYLE["abstract_cn"], PARAGRAPH_STYLE["abstract_size_pt"])
 
 
 def _add_english_abstract(doc: Document, text: str) -> None:
@@ -472,9 +494,10 @@ def _add_heading1(doc: Document, text: str) -> None:
         line_pt=18,
         before_pt=HEADING_STYLE["level1_before_pt"],
         after_pt=HEADING_STYLE["level1_after_pt"],
+        keep_with_next=True,
     )
     run = paragraph.add_run(text)
-    set_run_font(run, FONT_STYLE["heading_cn"], HEADING_STYLE["level1_size_pt"], bold=True)
+    set_run_font(run, FONT_STYLE["heading_cn"], HEADING_STYLE["level1_size_pt"])
 
 
 def _add_heading2(doc: Document, text: str) -> None:
@@ -483,11 +506,13 @@ def _add_heading2(doc: Document, text: str) -> None:
         paragraph,
         alignment=WD_ALIGN_PARAGRAPH.LEFT,
         line_pt=16,
+        first_line_chars=2,
         before_pt=HEADING_STYLE["level2_before_pt"],
         after_pt=HEADING_STYLE["level2_after_pt"],
+        keep_with_next=True,
     )
     run = paragraph.add_run(text)
-    set_run_font(run, FONT_STYLE["subheading_cn"], HEADING_STYLE["level2_size_pt"], bold=True)
+    set_run_font(run, FONT_STYLE["subheading_cn"], HEADING_STYLE["level2_size_pt"])
 
 
 def _add_body(doc: Document, text: str) -> None:
@@ -503,9 +528,9 @@ def _add_body(doc: Document, text: str) -> None:
 
 def _add_table(doc: Document, caption: str, df: pd.DataFrame, note: str = "") -> None:
     cap = doc.add_paragraph()
-    set_paragraph_format(cap, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=CAPTION_STYLE["line_pt"], before_pt=4, after_pt=2)
+    set_paragraph_format(cap, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=CAPTION_STYLE["line_pt"], before_pt=4, after_pt=2, keep_with_next=True)
     cap_run = cap.add_run(caption)
-    set_run_font(cap_run, FONT_STYLE["heading_cn"], TABLE_STYLE["caption_size_pt"], bold=True)
+    set_run_font(cap_run, FONT_STYLE["subheading_cn"], TABLE_STYLE["caption_size_pt"], bold=True)
     if "Panel" in df.columns:
         _add_panel_tables(doc, df)
     else:
@@ -539,10 +564,18 @@ def _panel_columns(panel_df: pd.DataFrame) -> list[str]:
 
 
 def _add_table_rows(doc: Document, rows: list[list[str]]) -> None:
+    global _CURRENT_TABLE_INDEX
     table = doc.add_table(rows=len(rows), cols=len(rows[0]))
     table.style = None
     clear_table_borders(table)
     set_table_width(table, _table_widths(len(rows[0])))
+    
+    _CURRENT_TABLE_INDEX += 1
+    # Check if this is a panel by looking at first row (skip panel rows for vertical borders)
+    # Actually, we use the table order to match with TABLE_VERTICAL_CONFIG (1-indexed based on total tables added)
+    # For now, all vertical configs are explicitly empty, so no vertical lines are drawn, preventing grid formation.
+    config = TABLE_VERTICAL_CONFIG.get(_CURRENT_TABLE_INDEX, {})
+
     for i, row_values in enumerate(rows):
         row = table.rows[i]
         mark_row_no_split(row)
@@ -560,6 +593,11 @@ def _add_table_rows(doc: Document, rows: list[list[str]]) -> None:
             if i > 0 and j > 0:
                 align = WD_ALIGN_PARAGRAPH.RIGHT if _looks_numeric(value) else WD_ALIGN_PARAGRAPH.CENTER
             set_cell_text(row.cells[j], value, bold=is_header, align=align)
+            
+            # Explicit vertical separators checking
+            if config.get(j, False):
+                set_cell_border(row.cells[j], "right", TABLE_STYLE["mid_border_sz"])
+
         if is_header:
             for cell in row.cells:
                 set_cell_border(cell, "bottom", TABLE_STYLE["mid_border_sz"])
@@ -575,9 +613,11 @@ def _table_widths(n_cols: int) -> list[float]:
     if n_cols == 4:
         return [4.6, 3.2, 3.2, 3.2]
     if n_cols == 5:
-        return [3.4, 3.2, 2.4, 3.0, 3.0]
+        # 38%, 15.5%, 15.5%, 15.5%, 15.5% of 15.0cm
+        return [5.7, 2.325, 2.325, 2.325, 2.325]
     if n_cols == 6:
-        return [3.4, 2.1, 2.1, 2.1, 3.0, 2.4]
+        # 26%, 10%, 15%, 11%, 21%, 17% of 15.0cm
+        return [3.9, 1.5, 2.25, 1.65, 3.15, 2.55]
     return [max(1.8, 15.0 / max(n_cols, 1))] * n_cols
 
 
@@ -607,8 +647,8 @@ def _add_figure(doc: Document, path: Path, caption: str) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
     paragraph = doc.add_paragraph()
-    # Use automatic line height for figure paragraphs to avoid fixed "exact" spacing
-    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=None, first_line_chars=0, before_pt=4, after_pt=1)
+    # Use single/auto line height for figure paragraphs — never exact
+    set_figure_paragraph_format(paragraph, keep_with_next=True)
     paragraph.add_run().add_picture(str(path), width=Cm(11.5))
     cap = doc.add_paragraph()
     set_paragraph_format(cap, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=CAPTION_STYLE["line_pt"], first_line_chars=0, before_pt=1, after_pt=4)
@@ -624,15 +664,11 @@ def _sanitize_document(doc: Document) -> None:
         "D0": "报告发布当日",
         "D1": "报告发布后一交易日",
         "wild_residual_bootstrap_hc3": "基于HC3推断的野生残差Bootstrap",
-        "dependent": "被解释变量",
-        "target": "核心解释变量",
-        "beta": "估计系数",
-        "se_hc3": "HC3标准误",
-        "p_value": "p值",
         "tone_aggregation": "语调聚合方式",
         "interaction_coef": "交互项系数",
         "post_2019_total_effect": "2019年后总效应",
-        "model": "模型",
+        "se_hc3": "HC3标准误",
+        "p_value": "p值",
     }
     banned_phrases = [
         "README.md",
@@ -669,23 +705,26 @@ def _sanitize_document(doc: Document) -> None:
 
 
 def _normalize_docx_spacing_rules(docx_path: Path) -> None:
-    """Rewrite exact line-spacing rules in the DOCX package to avoid fixed-spacing tags."""
-    if not docx_path.exists():
-        return
-    with tempfile.TemporaryDirectory() as tmpdir:
-        temp_docx = Path(tmpdir) / docx_path.name
-        with zipfile.ZipFile(docx_path, "r") as src, zipfile.ZipFile(temp_docx, "w", compression=zipfile.ZIP_DEFLATED) as dst:
-            for info in src.infolist():
-                data = src.read(info.filename)
-                if info.filename.endswith(".xml") and b'w:lineRule="exact"' in data:
-                    data = data.replace(b'w:lineRule="exact"', b'w:lineRule="auto"')
-                dst.writestr(info, data)
-        shutil.move(str(temp_docx), str(docx_path))
+    """No-op. Exact line spacing is now handled correctly at generation time via set_figure_paragraph_format."""
+    pass
 
+
+def _add_references_heading(doc: Document) -> None:
+    paragraph = doc.add_paragraph()
+    set_paragraph_format(
+        paragraph, 
+        alignment=WD_ALIGN_PARAGRAPH.LEFT, 
+        line_pt=12, 
+        before_pt=6, 
+        after_pt=3, 
+        first_line_chars=0,
+        keep_with_next=True
+    )
+    run = paragraph.add_run("参考文献")
+    set_run_font(run, "SimHei", 9.0, bold=False)
 
 def _add_references(doc: Document) -> list[str]:
-    doc.add_page_break()
-    _add_heading1(doc, "参考文献")
+    _add_references_heading(doc)
     refs = [
         "[1] 董青马，张皓越，马剑文，等．央行沟通与资产价格：识别“潜在”未预期货币政策信息[J]．金融研究，2024(6)．",
         "[2] 姜富伟，胡逸驰，黄楠．央行货币政策报告文本信息、宏观经济与股票市场[J]．金融研究，2021(6)．",
@@ -746,16 +785,32 @@ def _reference_is_cited(ref: str) -> bool:
 
 
 def export_pdf_with_word() -> None:
+    word = None
     try:
         import win32com.client
-
+        import pythoncom
+        
+        pythoncom.CoInitialize()
         word = win32com.client.DispatchEx("Word.Application")
         word.Visible = False
-        doc = word.Documents.Open(str(DOCX_PATH.resolve()))
-        doc.ExportAsFixedFormat(str(PDF_PATH.resolve()), ExportFormat=17)
+        word.DisplayAlerts = 0  # Suppress dialogs
+        doc = word.Documents.Open(
+            str(DOCX_PATH.resolve()),
+            ConfirmConversions=False,
+            ReadOnly=False,
+            AddToRecentFiles=False,
+        )
+        doc.Save()
+        doc.ExportAsFixedFormat(str(PDF_PATH.resolve()), ExportFormat=17, OptimizeFor=0)
         doc.Close(False)
         word.Quit()
+        word = None
     except Exception as exc:
+        if word is not None:
+            try:
+                word.Quit()
+            except Exception:
+                pass
         raise RuntimeError(f"Word COM PDF export failed: {exc}") from exc
 
 
@@ -876,13 +931,13 @@ def _run_text_layout_audit(caption_pages: dict[str, int], inventory: list[dict])
     for term in banned:
         if term in text:
             issues.append(f"正文残留禁用词：{term}")
-    for required in ["图1", "图2", "图3", "图4", "表1", "表2", "表3", "表4"]:
+    for required in ["图1", "图2", "图3", "图4", "表1", "表2", "表3", "表4", "表5"]:
         if not any(key.startswith(required) for key in caption_pages):
             issues.append(f"PDF未定位到{required}")
     if len([p for p in doc.paragraphs if re.match(r"^图\s*\d+\s", p.text.strip())]) != 4:
         issues.append("DOCX正文图题数量不是4")
-    if len([p for p in doc.paragraphs if re.match(r"^表\s*\d+\s", p.text.strip())]) != 4:
-        issues.append("DOCX正文表题数量不是4")
+    if len([p for p in doc.paragraphs if re.match(r"^表\s*\d+\s", p.text.strip())]) != 5:
+        issues.append("DOCX正文表题数量不是5")
     if any(row["text_chars"] == 0 and row["nonwhite_ratio"] < 0.01 for row in inventory):
         issues.append("存在疑似空白页")
     if len(inventory) < 10:

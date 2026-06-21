@@ -15,22 +15,22 @@ from .journal_style import FIGURE_STYLE
 
 @dataclass
 class JournalFigures:
-    figure1: str
-    figure2: str
-    figure3: str
-    figure4: str
+    figure1: str  # 政策指引相似度与创新度
+    figure2: str  # 文本分类模型的分组交叉验证学习曲线
+    figure3: str  # 政策指引创新度与股票实际波动率
+    figure4: str  # 国债收益率曲线与未预期政策语调反应
 
 
 def write_journal_figures(results: dict) -> JournalFigures:
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     _set_journal_plot_style()
     fig1 = FIGURES_DIR / "journal_figure1_guidance_similarity_novelty.png"
-    fig2 = FIGURES_DIR / "journal_figure2_stock_novelty_volatility.png"
-    fig3 = FIGURES_DIR / "journal_figure3_market_power.png"
+    fig2 = FIGURES_DIR / "journal_figure2_learning_curve.png"
+    fig3 = FIGURES_DIR / "journal_figure3_stock_novelty_volatility.png"
     fig4 = FIGURES_DIR / "journal_figure4_bond_curve_tone.png"
     _plot_guidance_similarity_novelty(results["text_features"], fig1)
-    _plot_stock_novelty_volatility(results["stock_panel"], fig2)
-    _plot_market_power(pd.DataFrame(results["power_results"]), fig3)
+    _plot_learning_curve(fig2)
+    _plot_stock_novelty_volatility(results["stock_panel"], fig3)
     _plot_bond_curve_tone(results["curve_daily"], results["curve_panel"], fig4)
     return JournalFigures(fig1.name, fig2.name, fig3.name, fig4.name)
 
@@ -86,6 +86,14 @@ def _save(fig, path) -> None:
     plt.close(fig)
 
 
+def _configure_journal_axes(ax) -> None:
+    """Apply journal-style axis formatting: enclosed frame, inward ticks, no top ticks."""
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.6)
+    ax.tick_params(axis="both", direction="in", top=False, right=True, length=3, width=0.5)
+
+
 def _plot_guidance_similarity_novelty(features: pd.DataFrame, path) -> None:
     df = features.loc[
         features["in_formal_sample"],
@@ -99,9 +107,37 @@ def _plot_guidance_similarity_novelty(features: pd.DataFrame, path) -> None:
     ax.plot(x, df["guidance_novelty"], color="#6E6E6E", linestyle="--", label="创新度")
     ax.set_ylabel("指数值")
     ax.set_xlabel("报告发布时间")
-    ax.grid(axis="y", alpha=0.7)
+    ax.grid(axis="y", alpha=0.7, linestyle="--", linewidth=0.3)
+    _configure_journal_axes(ax)
     ax.legend(frameon=False, loc="upper right", fontsize=FIGURE_STYLE["legend_font_pt"])
     fig.autofmt_xdate(rotation=0)
+    fig.tight_layout()
+    _save(fig, path)
+
+
+def _plot_learning_curve(path) -> None:
+    """Plot grouped cross-validation learning curves for sentiment and policy orientation."""
+    lc_path = ROOT / "output" / "tables" / "table7_learning_curve.csv"
+    if not lc_path.exists():
+        raise FileNotFoundError(f"Learning curve data not found: {lc_path}")
+    df = pd.read_csv(lc_path)
+    df.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
+    fig, ax = plt.subplots(figsize=_figsize(True))
+    # Plot sentiment and policy_stance (the two principal curves)
+    tasks = {
+        "sentiment": ("情感分类", "#000000", "-"),
+        "policy_stance": ("政策倾向分类", "#5E5E5E", "--"),
+    }
+    for task_name, (label, color, ls) in tasks.items():
+        sub = df[df["task"].eq(task_name)].sort_values("train_ratio")
+        train_pcts = (sub["train_ratio"] * 100).astype(int)
+        ax.plot(train_pcts, sub["macro_f1"], color=color, linestyle=ls, label=label)
+    ax.set_xlabel("训练集比例（%）")
+    ax.set_ylabel("Macro-F1")
+    ax.set_ylim(0.3, 0.9)
+    ax.grid(axis="y", alpha=0.65, linestyle="--", linewidth=0.3)
+    _configure_journal_axes(ax)
+    ax.legend(frameon=False, loc="lower right", fontsize=FIGURE_STYLE["legend_font_pt"])
     fig.tight_layout()
     _save(fig, path)
 
@@ -120,23 +156,9 @@ def _plot_stock_novelty_volatility(panel: pd.DataFrame, path) -> None:
         ax.plot(xs, intercept + beta * xs, color="#6E6E6E", linewidth=1.0, label="线性拟合")
     ax.set_xlabel("政策指引创新度")
     ax.set_ylabel("五日实际波动率对数")
-    ax.grid(axis="y", alpha=0.65)
+    ax.grid(axis="y", alpha=0.65, linestyle="--", linewidth=0.3)
+    _configure_journal_axes(ax)
     ax.legend(frameon=False, loc="best", fontsize=FIGURE_STYLE["legend_font_pt"])
-    fig.tight_layout()
-    _save(fig, path)
-
-
-def _plot_market_power(power: pd.DataFrame, path) -> None:
-    df = power[["sample_size", "power", "min_detectable_effect"]].copy()
-    df.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
-    fig, ax = plt.subplots(figsize=_figsize(True))
-    ax.plot(df["sample_size"], df["power"], color="#000000", marker="o", markersize=3.5, label="检验功效")
-    ax.axhline(0.8, color="#777777", linestyle="--", linewidth=0.8, label="80%参照线")
-    ax.set_xlabel("事件样本量")
-    ax.set_ylabel("功效")
-    ax.set_ylim(0.55, 1.0)
-    ax.grid(axis="y", alpha=0.65)
-    ax.legend(frameon=False, loc="lower right", fontsize=FIGURE_STYLE["legend_font_pt"])
     fig.tight_layout()
     _save(fig, path)
 
@@ -162,7 +184,8 @@ def _plot_bond_curve_tone(curve_daily: pd.DataFrame, curve_panel: pd.DataFrame, 
     ax.plot(sample["date"], sample["curvature"], color="#9A9A9A", linestyle=":", label="曲率")
     ax.set_ylabel("百分点")
     ax.text(0.01, 0.90, "Panel A", transform=ax.transAxes, fontsize=8, fontweight="bold")
-    ax.grid(axis="y", alpha=0.65)
+    ax.grid(axis="y", alpha=0.65, linestyle="--", linewidth=0.3)
+    _configure_journal_axes(ax)
     ax.legend(frameon=False, loc="upper right", ncol=3, fontsize=FIGURE_STYLE["legend_font_pt"])
 
     ax2 = axes[1]
@@ -179,7 +202,8 @@ def _plot_bond_curve_tone(curve_daily: pd.DataFrame, curve_panel: pd.DataFrame, 
     ax2.set_xticklabels(["低未预期语调", "中间", "高未预期语调"])
     ax2.set_ylabel("斜率变化(bp)")
     ax2.text(0.01, 0.90, "Panel B", transform=ax2.transAxes, fontsize=8, fontweight="bold")
+    _configure_journal_axes(ax2)
     ax2.legend(frameon=False, loc="best", fontsize=FIGURE_STYLE["legend_font_pt"])
-    ax2.grid(axis="y", alpha=0.65)
+    ax2.grid(axis="y", alpha=0.65, linestyle="--", linewidth=0.3)
     fig.tight_layout(h_pad=0.8)
     _save(fig, path)

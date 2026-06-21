@@ -21,9 +21,11 @@ PAGE_STYLE = {
 FONT_STYLE = {
     "body_cn": "宋体",
     "body_en": "Times New Roman",
-    "title_cn": "方正小标宋简体",
+    "title_cn": "SimHei",
     "heading_cn": "仿宋",
     "subheading_cn": "黑体",
+    "author_cn": "楷体",
+    "abstract_cn": "仿宋",
     "reference_cn": "仿宋",
 }
 
@@ -31,10 +33,11 @@ FONT_STYLE = {
 PARAGRAPH_STYLE = {
     "body_size_pt": 10.5,
     "body_line_pt": 18,
-    "abstract_size_pt": 9.5,
+    "abstract_size_pt": 10.5,
     "abstract_line_pt": 15,
     "english_abstract_line_pt": 14,
     "first_line_chars": 2,
+    "author_size_pt": 16,
 }
 
 HEADING_STYLE = {
@@ -119,16 +122,47 @@ def set_paragraph_format(
     first_line_chars: float | None = None,
     before_pt: float = 0,
     after_pt: float = 0,
+    exact: bool = True,
+    keep_with_next: bool = False,
 ) -> None:
     paragraph.alignment = alignment
     fmt = paragraph.paragraph_format
     fmt.space_before = Pt(before_pt)
     fmt.space_after = Pt(after_pt)
+    fmt.widow_control = True
+    if keep_with_next:
+        fmt.keep_with_next = True
+        fmt.keep_together = True
     if line_pt is not None:
-        fmt.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
-        fmt.line_spacing = line_pt / 12.0
+        if exact:
+            fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+            fmt.line_spacing = Pt(line_pt)
+        else:
+            fmt.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+            fmt.line_spacing = line_pt / 12.0
     if first_line_chars is not None:
         fmt.first_line_indent = Pt(PARAGRAPH_STYLE["body_size_pt"] * first_line_chars)
+
+
+def set_figure_paragraph_format(
+    paragraph,
+    *,
+    alignment=WD_ALIGN_PARAGRAPH.CENTER,
+    before_pt: float = 4,
+    after_pt: float = 1,
+    keep_with_next: bool = True,
+) -> None:
+    """Format for paragraphs containing pictures — no exact line spacing."""
+    paragraph.alignment = alignment
+    fmt = paragraph.paragraph_format
+    fmt.space_before = Pt(before_pt)
+    fmt.space_after = Pt(after_pt)
+    fmt.first_line_indent = Pt(0)
+    fmt.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    fmt.line_spacing = 1.0
+    if keep_with_next:
+        fmt.keep_with_next = True
+        fmt.keep_together = True
 
 
 def configure_section(section) -> None:
@@ -144,14 +178,21 @@ def add_body_section(doc):
     section = doc.add_section(WD_SECTION_START.NEW_PAGE)
     configure_section(section)
     section.different_first_page_header_footer = True
-    # enable different odd and even page headers as required by journal style
     section.odd_and_even_pages_header_footer = True
     _restart_page_numbering(section, 1)
+    section.first_page_header.is_linked_to_previous = False
     _clear_header_footer(section.first_page_header)
+    section.first_page_footer.is_linked_to_previous = False
     _clear_header_footer(section.first_page_footer)
-    _add_footer_page_field(section.first_page_footer)
+    section.footer.is_linked_to_previous = False
+    _clear_header_footer(section.footer)
+    try:
+        if section.even_page_footer:
+            section.even_page_footer.is_linked_to_previous = False
+            _clear_header_footer(section.even_page_footer)
+    except:
+        pass
     _add_running_header(section)
-    _add_footer_page_field(section.footer)
     return section
 
 
@@ -171,66 +212,87 @@ def _restart_page_numbering(section, start: int) -> None:
 
 
 def _add_running_header(section) -> None:
-    # Create both odd and even page headers (section may provide even_page_header)
-    try:
-        header = section.header
-        header.is_linked_to_previous = False
-        # center header (odd pages)
+    def create_header_with_tabs(header, is_even):
+        _clear_header_footer(header)
         para = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
         para.clear()
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = para.add_run(HEADER_FOOTER_STYLE["header_text"])
-        set_run_font(run, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
-        p_pr = para._element.get_or_add_pPr()
+        
+        pPr = para._element.get_or_add_pPr()
+        tabs = OxmlElement('w:tabs')
+        # Center tab at ~8cm
+        tab1 = OxmlElement('w:tab')
+        tab1.set(qn('w:val'), 'center')
+        tab1.set(qn('w:pos'), '4535') 
+        tabs.append(tab1)
+        # Right tab at ~16cm
+        tab2 = OxmlElement('w:tab')
+        tab2.set(qn('w:val'), 'right')
+        tab2.set(qn('w:pos'), '9070') 
+        tabs.append(tab2)
+        pPr.append(tabs)
+        
         p_bdr = OxmlElement("w:pBdr")
         bottom = OxmlElement("w:bottom")
         bottom.set(qn("w:val"), "single")
-        bottom.set(qn("w:sz"), HEADER_FOOTER_STYLE["border_sz"])
+        bottom.set(qn("w:sz"), "4") # 0.5pt
         bottom.set(qn("w:space"), "1")
         bottom.set(qn("w:color"), "000000")
         p_bdr.append(bottom)
-        p_pr.append(p_bdr)
-    except Exception:
-        pass
-    # even page header: place journal short title centered and month on right
+        pPr.append(p_bdr)
+        
+        def add_page_fld():
+            run = para.add_run("· ")
+            set_run_font(run, FONT_STYLE["body_en"], HEADER_FOOTER_STYLE["header_size_pt"])
+            run_fld = para.add_run()
+            set_run_font(run_fld, FONT_STYLE["body_en"], HEADER_FOOTER_STYLE["header_size_pt"])
+            fld1 = OxmlElement('w:fldChar')
+            fld1.set(qn('w:fldCharType'), 'begin')
+            instr = OxmlElement('w:instrText')
+            instr.set(qn('xml:space'), 'preserve')
+            instr.text = "PAGE"
+            fld2 = OxmlElement('w:fldChar')
+            fld2.set(qn('w:fldCharType'), 'end')
+            run_fld._r.append(fld1)
+            run_fld._r.append(instr)
+            run_fld._r.append(fld2)
+            run2 = para.add_run(" ·")
+            set_run_font(run2, FONT_STYLE["body_en"], HEADER_FOOTER_STYLE["header_size_pt"])
+            
+        def add_tab():
+            run = para.add_run()
+            tab = OxmlElement('w:tab')
+            run._r.append(tab)
+
+        if is_even:
+            add_page_fld()
+            add_tab()
+            r_c = para.add_run("面向经济和金融的Python编程")
+            set_run_font(r_c, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+            add_tab()
+            r_r = para.add_run("2026年6月")
+            set_run_font(r_r, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+        else:
+            r_l = para.add_run("课程论文")
+            set_run_font(r_l, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+            add_tab()
+            r_c = para.add_run("罗允绩：中国货币政策报告文本特征与金融市场反应")
+            set_run_font(r_c, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+            add_tab()
+            add_page_fld()
+
     try:
-        even_header = getattr(section, "even_page_header", None)
-        if even_header is not None:
-            even_header.is_linked_to_previous = False
-            # center line
-            p_center = even_header.paragraphs[0] if even_header.paragraphs else even_header.add_paragraph()
-            p_center.clear()
-            p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run_c = p_center.add_run("面向经济和金融的Python编程")
-            set_run_font(run_c, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
-            # right line with month
-            p_right = even_header.add_paragraph()
-            p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            run_r = p_right.add_run("2026年6月")
-            set_run_font(run_r, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
-    except Exception:
+        header = section.header
+        header.is_linked_to_previous = False
+        create_header_with_tabs(header, False)
+    except Exception as e:
         pass
 
-
-def _add_footer_page_field(footer) -> None:
-    footer.is_linked_to_previous = False
-    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-    paragraph.clear()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run("— ")
-    set_run_font(run, FONT_STYLE["body_en"], HEADER_FOOTER_STYLE["footer_size_pt"])
-    begin = OxmlElement("w:fldChar")
-    begin.set(qn("w:fldCharType"), "begin")
-    run._element.append(begin)
-    instr = OxmlElement("w:instrText")
-    instr.set(qn("xml:space"), "preserve")
-    instr.text = " PAGE "
-    run._element.append(instr)
-    end = OxmlElement("w:fldChar")
-    end.set(qn("w:fldCharType"), "end")
-    run._element.append(end)
-    tail = paragraph.add_run(" —")
-    set_run_font(tail, FONT_STYLE["body_en"], HEADER_FOOTER_STYLE["footer_size_pt"])
+    try:
+        even_header = section.even_page_header
+        even_header.is_linked_to_previous = False
+        create_header_with_tabs(even_header, True)
+    except Exception as e:
+        pass
 
 
 def set_cell_text(cell, text: str, *, bold: bool = False, align=WD_ALIGN_PARAGRAPH.CENTER, size_pt: float | None = None) -> None:
