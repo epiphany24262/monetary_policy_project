@@ -310,11 +310,102 @@ def set_cell_text(cell, text: str, *, bold: bool = False, align=WD_ALIGN_PARAGRA
 def set_table_width(table, widths_cm: list[float] | None = None) -> None:
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
+    
     if not widths_cm:
         return
+
+    # Total expected: 15.0cm exactly = 8504 twips
+    total_twips_target = 8504
+    twips_per_cm = 1440 / 2.54
+    
+    col_twips = [int(w * twips_per_cm) for w in widths_cm]
+    col_twips[-1] += total_twips_target - sum(col_twips)
+
+    tblPr = table._tbl.tblPr
+    tblW = tblPr.find(qn('w:tblW'))
+    if tblW is None:
+        tblW = OxmlElement('w:tblW')
+        tblPr.append(tblW)
+    tblW.set(qn('w:type'), 'dxa')
+    tblW.set(qn('w:w'), str(total_twips_target))
+
+    tblLayout = tblPr.find(qn('w:tblLayout'))
+    if tblLayout is None:
+        tblLayout = OxmlElement('w:tblLayout')
+        tblPr.append(tblLayout)
+    tblLayout.set(qn('w:type'), 'fixed')
+
+    tblGrid = table._tbl.find(qn('w:tblGrid'))
+    if tblGrid is not None:
+        table._tbl.remove(tblGrid)
+    
+    tblGrid = OxmlElement('w:tblGrid')
+    for width_twips in col_twips:
+        gridCol = OxmlElement('w:gridCol')
+        gridCol.set(qn('w:w'), str(width_twips))
+        tblGrid.append(gridCol)
+    # Ensure tblGrid is immediately after tblPr
+    table._tbl.insert(table._tbl.index(tblPr) + 1, tblGrid)
+
     for row in table.rows:
-        for idx, cell in enumerate(row.cells[: len(widths_cm)]):
-            cell.width = Cm(widths_cm[idx])
+        for idx, cell in enumerate(row.cells[: len(col_twips)]):
+            tcPr = cell._tc.get_or_add_tcPr()
+            tcW = tcPr.find(qn('w:tcW'))
+            if tcW is None:
+                tcW = OxmlElement('w:tcW')
+                tcPr.append(tcW)
+            tcW.set(qn('w:type'), 'dxa')
+            tcW.set(qn('w:w'), str(col_twips[idx]))
+
+def set_cell_margins(cell, left_cm=0.10, right_cm=0.10, top_cm=0.0, bottom_cm=0.0) -> None:
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcMar = tcPr.find(qn('w:tcMar'))
+    if tcMar is None:
+        tcMar = OxmlElement('w:tcMar')
+        tcPr.append(tcMar)
+    
+    for edge, val_cm in [('top', top_cm), ('bottom', bottom_cm), ('left', left_cm), ('right', right_cm)]:
+        el = tcMar.find(qn(f'w:{edge}'))
+        if el is None:
+            el = OxmlElement(f'w:{edge}')
+            tcMar.append(el)
+        el.set(qn('w:type'), 'dxa')
+        el.set(qn('w:w'), str(int(val_cm * 1440 / 2.54)))
+
+def set_decimal_cell_text(cell, text: str, cell_width_twips: int, left_margin_twips: int = 57, right_margin_twips: int = 57, size_pt=None, bold=False) -> None:
+    paragraph = cell.paragraphs[0]
+    paragraph.clear()
+    
+    # Text is primarily left aligned, with decimal tab pushing it to the right position
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    
+    paragraph.paragraph_format.left_indent = Pt(0)
+    paragraph.paragraph_format.right_indent = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    paragraph.paragraph_format.line_spacing = Pt(12)
+    
+    pPr = paragraph._p.get_or_add_pPr()
+    tabs = pPr.find(qn('w:tabs'))
+    if tabs is None:
+        tabs = OxmlElement('w:tabs')
+        pPr.append(tabs)
+    tab = OxmlElement('w:tab')
+    tab.set(qn('w:val'), 'decimal')
+    
+    # Calculate usable inner width and logical center
+    usable_width = cell_width_twips - left_margin_twips - right_margin_twips
+    # Because numbers display typically "-0.1124***", the right part is considerably wider.
+    # We offset the anchor dynamically to ~45% from left margin to keep the block visually centered.
+    anchor_pos = int(usable_width * 0.45)
+    
+    # For a decimal tab inside a cell, its position is relative to the cell's left margin.
+    tab.set(qn('w:pos'), str(anchor_pos))
+    tabs.append(tab)
+    
+    run_tab = paragraph.add_run('\t')
+    run = paragraph.add_run(str(text))
+    set_run_font(run, FONT_STYLE["body_en"], size_pt or TABLE_STYLE["body_size_pt"], bold=bold)
 
 
 def mark_row_no_split(row) -> None:

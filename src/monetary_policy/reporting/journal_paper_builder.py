@@ -37,6 +37,8 @@ from .journal_style import (
     set_paragraph_format,
     set_run_font,
     set_table_width,
+    set_cell_margins,
+    set_decimal_cell_text,
 )
 from .journal_tables import JournalTables, fmt, write_journal_tables
 
@@ -578,7 +580,8 @@ def _add_table_rows(doc: Document, rows: list[list[str]], semantic_key: str = No
     table = doc.add_table(rows=len(rows), cols=len(rows[0]))
     table.style = None
     clear_table_borders(table)
-    set_table_width(table, _table_widths(len(rows[0]), semantic_key))
+    widths = _table_widths(len(rows[0]), semantic_key)
+    set_table_width(table, widths)
     
     config = TABLE_VERTICAL_CONFIG.get(semantic_key, {})
 
@@ -593,17 +596,20 @@ def _add_table_rows(doc: Document, rows: list[list[str]], semantic_key: str = No
                     set_cell_border(cell, "top", TABLE_STYLE["top_border_sz"])
 
         for j, value in enumerate(row_values):
+            set_cell_margins(row.cells[j])
+            
             align = WD_ALIGN_PARAGRAPH.CENTER
             if i > 0:
                 header_val = rows[0][j] if 0 < len(rows) and j < len(rows[0]) else ""
-                if "样本量" in header_val:
-                    align = WD_ALIGN_PARAGRAPH.CENTER
+                if "样本量" in header_val or "—" == str(value):
+                    set_cell_text(row.cells[j], value, bold=is_header, align=WD_ALIGN_PARAGRAPH.CENTER)
                 elif _looks_numeric(value):
-                    align = WD_ALIGN_PARAGRAPH.RIGHT
+                    twips = int(widths[j] * 1440 / 2.54)
+                    set_decimal_cell_text(row.cells[j], value, cell_width_twips=twips, bold=is_header)
                 else:
-                    align = WD_ALIGN_PARAGRAPH.CENTER
-            
-            set_cell_text(row.cells[j], value, bold=is_header, align=align)
+                    set_cell_text(row.cells[j], value, bold=is_header, align=WD_ALIGN_PARAGRAPH.CENTER)
+            else:
+                set_cell_text(row.cells[j], value, bold=is_header, align=WD_ALIGN_PARAGRAPH.CENTER)
             
             # Explicit vertical separators checking
             if config.get(j, False):
