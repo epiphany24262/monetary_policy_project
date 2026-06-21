@@ -45,7 +45,7 @@ def test_pdf_has_cover_then_abstract_page():
 
 def test_research_files_match_final_method_hierarchy():
     plan_path = next(
-        path for path in [Path("research/FINAL_ANALYSIS_PLAN.md"), Path("configs/FINAL_ANALYSIS_PLAN.md")] if path.exists()
+        path for path in [Path("research/final_analysis_plan.md"), Path("configs/final_analysis_plan.md")] if path.exists()
     )
     synthesis_path = Path("research/research_synthesis.md")
     plan = plan_path.read_text(encoding="utf-8")

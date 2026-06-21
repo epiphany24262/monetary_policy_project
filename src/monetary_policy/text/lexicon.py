@@ -12,7 +12,7 @@ from ..paths import DICTIONARY_DIR, OUTPUT_DIR, ROOT
 
 
 EXTERNAL_DIR = DICTIONARY_DIR / "external"
-COMBINED_PATH = DICTIONARY_DIR / "combined_refactor_lexicon.csv"
+COMBINED_PATH = DICTIONARY_DIR / "combined_lexicon.csv"
 
 # Lexicon versioning
 LEXICON_VERSION_DIR = DICTIONARY_DIR / "lexicon_versions"

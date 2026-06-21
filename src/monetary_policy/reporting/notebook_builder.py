@@ -32,7 +32,7 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell(
             "from src.monetary_policy.sample import verify_final_analysis_plan, sample_bounds, is_in_formal_sample\n"
             "verify_final_analysis_plan()\n"
-            "features = pd.read_csv(ROOT / 'data/processed/refactor_text_features.csv')\n"
+            "features = pd.read_csv(ROOT / 'data/processed/text_features.csv')\n"
             "print('sample_bounds =', sample_bounds())\n"
             "print(features[['report_id','report_period','in_formal_sample']].tail())\n"
             "print('formal_n =', int(features['in_formal_sample'].sum()))"
@@ -79,7 +79,7 @@ def build_notebook() -> None:
         ),
         nbf.v4.new_markdown_cell("## 7. 股票事件级核心模型"),
         nbf.v4.new_code_cell(
-            "stock_panel = pd.read_csv(ROOT / 'data/processed/refactor_stock_event_panel.csv')\n"
+            "stock_panel = pd.read_csv(ROOT / 'data/processed/stock_event_panel.csv')\n"
             "stock_results = pd.read_csv(ROOT / 'output/results/stock_volatility_results.csv')\n"
             "main_vol = json.loads((ROOT / 'output/results/stock_volatility_main.json').read_text(encoding='utf-8'))\n"
             "display(stock_panel[['event_id','log_rv_0_5','guidance_novelty','pre_event_volatility_20d','action_nearby_core','post_2019']].tail())\n"
@@ -114,7 +114,7 @@ def build_notebook() -> None:
         ),
         nbf.v4.new_markdown_cell("## 11. 图表、论文和提交包审计"),
         nbf.v4.new_code_cell(
-            "summary = json.loads((ROOT / 'output/results/refactor_run_summary.json').read_text(encoding='utf-8')) if (ROOT / 'output/results/refactor_run_summary.json').exists() else {}\n"
+            "summary = json.loads((ROOT / 'output/results/run_summary.json').read_text(encoding='utf-8')) if (ROOT / 'output/results/run_summary.json').exists() else {}\n"
             "figures = sorted(p.name for p in (ROOT / 'output/figures').glob('figure*.png'))\n"
             "manifest = pd.read_csv(ROOT / 'delivery/FINAL_SUBMISSION_MANIFEST.csv') if (ROOT / 'delivery/FINAL_SUBMISSION_MANIFEST.csv').exists() else pd.DataFrame()\n"
             "print(summary)\n"

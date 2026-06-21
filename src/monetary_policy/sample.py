@@ -38,16 +38,16 @@ def sample_bounds() -> tuple[str, str]:
 
 
 def verify_final_analysis_plan() -> None:
-    plan = RESEARCH_DIR / "FINAL_ANALYSIS_PLAN.md"
-    sha_path = RESEARCH_DIR / "FINAL_ANALYSIS_PLAN.sha256"
+    plan = RESEARCH_DIR / "final_analysis_plan.md"
+    sha_path = RESEARCH_DIR / "final_analysis_plan.sha256"
     if not plan.exists() or not sha_path.exists():
-        plan = CONFIG_PATH.parent / "FINAL_ANALYSIS_PLAN.md"
-        sha_path = CONFIG_PATH.parent / "FINAL_ANALYSIS_PLAN.sha256"
+        plan = CONFIG_PATH.parent / "final_analysis_plan.md"
+        sha_path = CONFIG_PATH.parent / "final_analysis_plan.sha256"
     if not plan.exists() or not sha_path.exists():
-        raise FileNotFoundError("Missing locked FINAL_ANALYSIS_PLAN.md or FINAL_ANALYSIS_PLAN.sha256")
+        raise FileNotFoundError("Missing locked final_analysis_plan.md or final_analysis_plan.sha256")
     expected = sha_path.read_text(encoding="utf-8").strip().split()[0]
     actual = hashlib.sha256(plan.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
     if actual != expected:
         raise RuntimeError(
-            "FINAL_ANALYSIS_PLAN.md hash mismatch. Do not continue until the plan is intentionally re-locked."
+            "final_analysis_plan.md hash mismatch. Do not continue until the plan is intentionally re-locked."
         )

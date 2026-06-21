@@ -133,7 +133,7 @@ def add_unexpected(panel: pd.DataFrame, column: str) -> pd.DataFrame:
 
 
 def run_market_probe(counts: pd.DataFrame, seed: int) -> list[dict]:
-    bond = pd.read_csv(ROOT / "data/processed/refactor_yield_curve_event_panel.csv")
+    bond = pd.read_csv(ROOT / "data/processed/yield_curve_event_panel.csv")
     merged = bond.merge(counts, left_on="report_period", right_on="report_id", how="inner")
     rows: list[dict] = []
     for definition in ["stance_net_all", "stance_net_relevant", "stance_net_directional"]:

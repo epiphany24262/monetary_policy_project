@@ -102,7 +102,7 @@ def build_research_documents() -> None:
         },
     ]
     matrix = pd.DataFrame(rows)
-    matrix.to_excel(RESEARCH_DIR / "LITERATURE_METHOD_MATRIX.xlsx", index=False)
+    matrix.to_excel(RESEARCH_DIR / "literature_method_matrix.xlsx", index=False)
     md = ["# 文献方法对照", "", "本项目的主检验在最终分析计划中事先锁定，不根据估计结果更换窗口或核心变量。"]
     for _, row in matrix.iterrows():
         md.extend(
@@ -116,7 +116,7 @@ def build_research_documents() -> None:
                 f"- 未采用方法：{row['not_adopted']}",
             ]
         )
-    (RESEARCH_DIR / "METHOD_ALIGNMENT.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (RESEARCH_DIR / "method_alignment.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 
 
 def build_text_features() -> pd.DataFrame:
@@ -269,8 +269,8 @@ def build_text_features() -> pd.DataFrame:
     ]
     (OUTPUT_DIR / "diagnostics").mkdir(parents=True, exist_ok=True)
     diagnostics.to_excel(OUTPUT_DIR / "diagnostics" / "unexpected_tone_diagnostics.xlsx", index=False)
-    features.to_csv(PROCESSED_DIR / "refactor_text_features.csv", index=False, encoding="utf-8-sig")
-    section_scores.drop(columns=["text"]).to_csv(PROCESSED_DIR / "refactor_section_text_scores.csv", index=False, encoding="utf-8-sig")
+    features.to_csv(PROCESSED_DIR / "text_features.csv", index=False, encoding="utf-8-sig")
+    section_scores.drop(columns=["text"]).to_csv(PROCESSED_DIR / "section_text_scores.csv", index=False, encoding="utf-8-sig")
     return features
 
 
@@ -297,12 +297,12 @@ def build_results(
     learning_curves = _run_learning_curves(recompute=recompute_text_diagnostics)
 
     stock_panel = build_stock_event_panel(text_features)
-    stock_panel.to_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv", index=False, encoding="utf-8-sig")
+    stock_panel.to_csv(PROCESSED_DIR / "stock_event_panel.csv", index=False, encoding="utf-8-sig")
     vol_paths = build_stock_volatility_paths(stock_panel)
-    vol_paths.to_csv(PROCESSED_DIR / "refactor_stock_volatility_paths.csv", index=False, encoding="utf-8-sig")
+    vol_paths.to_csv(PROCESSED_DIR / "stock_volatility_paths.csv", index=False, encoding="utf-8-sig")
     curve_daily, curve_panel = build_yield_curve_event_panel(text_features)
-    curve_daily.to_csv(PROCESSED_DIR / "refactor_yield_curve_daily.csv", index=False, encoding="utf-8-sig")
-    curve_panel.to_csv(PROCESSED_DIR / "refactor_yield_curve_event_panel.csv", index=False, encoding="utf-8-sig")
+    curve_daily.to_csv(PROCESSED_DIR / "yield_curve_daily.csv", index=False, encoding="utf-8-sig")
+    curve_panel.to_csv(PROCESSED_DIR / "yield_curve_event_panel.csv", index=False, encoding="utf-8-sig")
 
     vol_table, main_vol, egarch = run_stock_volatility_models(stock_panel)
     return_table = run_stock_return_models(stock_panel)
@@ -355,7 +355,7 @@ def build_results(
     }
     for name, df in tables.items():
         df.to_csv(TABLES_DIR / f"{name}.csv", index=False, encoding="utf-8-sig")
-    write_excel_tables(TABLES_DIR / "refactor_result_tables.xlsx", tables)
+    write_excel_tables(TABLES_DIR / "result_tables.xlsx", tables)
     (RESULTS_DIR / "stock_volatility_main.json").write_text(json.dumps(main_vol, ensure_ascii=False, indent=2), encoding="utf-8")
     write_egarch(RESULTS_DIR / "egarch_diagnostic.json", egarch)
     vol_table.to_csv(RESULTS_DIR / "stock_volatility_results.csv", index=False, encoding="utf-8-sig")
@@ -722,7 +722,7 @@ def run_pipeline(
         "pdf_pages": pdf_check["page_count"],
         "final_submission_files": None,
     }
-    (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    (OUTPUT_DIR / "results" / "run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     submission_summary = build_final_submission()
     summary["final_submission_files"] = submission_summary["included_files"]
     submission_notebook = ROOT / "final_submission" / "notebooks" / "货币政策沟通与金融市场反应.ipynb"
@@ -730,8 +730,8 @@ def run_pipeline(
         summary["root_notebook_sha256"] = _sha256_file(notebook_path)
         summary["submission_notebook_sha256"] = _sha256_file(submission_notebook)
         summary["notebook_hash_match"] = summary["root_notebook_sha256"] == summary["submission_notebook_sha256"]
-    (OUTPUT_DIR / "results" / "refactor_run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    final_summary = ROOT / "final_submission" / "output" / "results" / "refactor_run_summary.json"
+    (OUTPUT_DIR / "results" / "run_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    final_summary = ROOT / "final_submission" / "output" / "results" / "run_summary.json"
     if final_summary.parent.exists():
         final_summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     write_submission_manifests()

@@ -24,7 +24,7 @@ from src.monetary_policy.events.event_calendar import load_event_calendar
 def daily_dataset():
     stock = load_stock_prices()
     events = load_event_calendar()
-    panel = pd.read_csv("data/processed/refactor_stock_event_panel.csv")
+    panel = pd.read_csv("data/processed/stock_event_panel.csv")
     return build_daily_egarch_dataset(stock, events, panel)
 
 

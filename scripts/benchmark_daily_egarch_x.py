@@ -65,7 +65,7 @@ def main() -> None:
     t0 = time.perf_counter()
     stock = load_stock_prices()
     events = load_event_calendar()
-    stock_panel = pd.read_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv")
+    stock_panel = pd.read_csv(PROCESSED_DIR / "stock_event_panel.csv")
     daily, hashes = build_daily_egarch_dataset(stock, events, stock_panel)
     timings["load_and_construct_seconds"] = time.perf_counter() - t0
 

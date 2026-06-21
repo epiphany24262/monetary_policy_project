@@ -29,7 +29,7 @@ def main() -> None:
 
     stock = load_stock_prices()
     events = load_event_calendar()
-    stock_panel = pd.read_csv(PROCESSED_DIR / "refactor_stock_event_panel.csv")
+    stock_panel = pd.read_csv(PROCESSED_DIR / "stock_event_panel.csv")
     daily, hashes = build_daily_egarch_dataset(stock, events, stock_panel)
 
     locked_json = RESULTS_DIR / "daily_egarch_x_locked.json"

@@ -177,7 +177,7 @@ def build_final_submission() -> dict:
     _copy_tree(ROOT / "tests", FINAL_SUBMISSION_DIR / "tests", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "notebooks", FINAL_SUBMISSION_DIR / "notebooks", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "paper", FINAL_SUBMISSION_DIR / "paper", ignore=COMMON_IGNORES)
-    for plan_name in ["FINAL_ANALYSIS_PLAN.md", "FINAL_ANALYSIS_PLAN.sha256"]:
+    for plan_name in ["final_analysis_plan.md", "final_analysis_plan.sha256"]:
         src = ROOT / "research" / plan_name
         if src.exists():
             _copy_file(src, FINAL_SUBMISSION_DIR / "configs" / plan_name)

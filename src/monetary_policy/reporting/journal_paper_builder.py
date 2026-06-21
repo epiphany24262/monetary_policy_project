@@ -794,7 +794,7 @@ def _write_paper_audits(numbers: PaperNumbers, refs: list[str]) -> None:
 
 def _number_source(key: str) -> str:
     if key.startswith("stock") or key == "guidance_std":
-        return "output/results/stock_volatility_main.json; data/processed/refactor_stock_event_panel.csv"
+        return "output/results/stock_volatility_main.json; data/processed/stock_event_panel.csv"
     if key.startswith("egarch"):
         return "output/results/daily_egarch_x_results.json"
     if key.startswith("bond"):
@@ -805,7 +805,7 @@ def _number_source(key: str) -> str:
         return "output/results/text_model_evaluation.json; output/diagnostics/text_validation_metrics.xlsx"
     if key.startswith("power"):
         return "output/diagnostics/market_power_analysis.csv"
-    return "data/processed/refactor_text_features.csv"
+    return "data/processed/text_features.csv"
 
 
 def _reference_is_cited(ref: str) -> bool:

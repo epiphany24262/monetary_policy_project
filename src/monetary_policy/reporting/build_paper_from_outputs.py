@@ -38,10 +38,10 @@ def _read_text_validation_report(path: Path) -> dict:
 
 
 def build_results_from_outputs() -> dict:
-    text_features = pd.read_csv(PROCESSED / 'refactor_text_features.csv')
-    stock_panel = pd.read_csv(PROCESSED / 'refactor_stock_event_panel.csv')
-    curve_daily = pd.read_csv(PROCESSED / 'refactor_yield_curve_daily.csv')
-    curve_panel = pd.read_csv(PROCESSED / 'refactor_yield_curve_event_panel.csv')
+    text_features = pd.read_csv(PROCESSED / 'text_features.csv')
+    stock_panel = pd.read_csv(PROCESSED / 'stock_event_panel.csv')
+    curve_daily = pd.read_csv(PROCESSED / 'yield_curve_daily.csv')
+    curve_panel = pd.read_csv(PROCESSED / 'yield_curve_event_panel.csv')
 
     main_vol = _read_json(RESULTS / 'stock_volatility_main.json')
     egarch_x = _read_json(RESULTS / 'daily_egarch_x_results.json')
