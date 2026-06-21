@@ -14,8 +14,6 @@ archive/
 final_submission/
 .codex/
 delivery/
-tests/
-research/
 prompts/
 phases/
 checklists/
@@ -31,9 +29,14 @@ data/raw/
 !notebooks/
 !configs/
 !references/
+!tests/
+!scripts/
+!experiments/
+!research/
 !README.md
 !run_all.py
 !requirements.txt
 !environment.yml
+!pyproject.toml
 !.gitignore
 !.env.example

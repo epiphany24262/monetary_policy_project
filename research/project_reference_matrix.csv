@@ -1,0 +1,11 @@
+﻿repo,url,description,stars,forks,license,pushed_at,relevance,reuse_decision,verification_status
+gtfintechlab/WorldsCentralBanks,https://github.com/gtfintechlab/WorldsCentralBanks,全球央行沟通数据与实验，中央银行文本研究参考。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+JBenchimol/central-bank-texts,https://github.com/JBenchimol/central-bank-texts,中央银行文本集合，含原始发布 URL。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+agoutsmedt/central_bank_database,https://github.com/agoutsmedt/central_bank_database,央行文件抓取与清洗脚本。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+hiDaDeng/cntext,https://github.com/hiDaDeng/cntext,中文社会科学文本分析库，可参考词频和情感实现。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+MengLingchao/Chinese_financial_sentiment_dictionary,https://github.com/MengLingchao/Chinese_financial_sentiment_dictionary,中文金融情感词典仓库，需遵守引用要求。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+ha0ba/Chinese_Financial_Sentiment_Dictionary,https://github.com/ha0ba/Chinese_Financial_Sentiment_Dictionary,Du et al. 中文金融情感词典更新版。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+Darenar/easy-event-study,https://github.com/Darenar/easy-event-study,Python 金融事件研究实现参考。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+sipemu/eventstudy,https://github.com/sipemu/eventstudy,R 事件研究包，参考事件研究接口和许可证。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+DerKevinRiehl/bond_event_study,https://github.com/DerKevinRiehl/bond_event_study,债券市场事件研究代码参考。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403
+marekjarocinski/jkshocks_update_fed_202401,https://github.com/marekjarocinski/jkshocks_update_fed_202401,Jarocinski-Karadi 冲击更新数据代码参考。,,,unknown,,参考方法、工程结构或验证材料；不直接复制代码。,reference_only,github_api_status_403

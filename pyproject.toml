@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monetary-policy-project"
+version = "1.0.0"
+description = "中国货币政策报告文本特征与金融市场反应"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "epiphany24262"}
+]
+keywords = ["monetary-policy", "text-analysis", "event-study", "financial-markets", "china"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "pandas>=3.0",
+    "numpy>=2.4",
+    "requests>=2.34",
+    "beautifulsoup4>=4.15",
+    "lxml>=6.1",
+    "pdfplumber>=0.11",
+    "PyMuPDF>=1.27",
+    "python-docx>=1.2",
+    "openpyxl>=3.1",
+    "statsmodels>=0.14",
+    "scikit-learn>=1.9",
+    "matplotlib>=3.11",
+    "PyYAML>=6.0",
+    "scipy>=1.17",
+    "nbformat>=5.10",
+    "nbconvert>=7.17",
+    "pytest>=9.1",
+    "tqdm>=4.68",
+    "arch>=8.0",
+    "jieba>=0.42",
+    "reportlab>=5.0",
+    "pypdf>=6.13",
+    "ipykernel>=7.3",
+]
+
+[project.optional-dependencies]
+remote-data = ["akshare>=1.18", "yfinance>=1.4"]
+
+[project.scripts]
+monetary-policy-run = "src.monetary_policy.pipeline:run_pipeline"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+addopts = ["-v", "--tb=short", "--strict-markers"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "remote: marks tests that need network access",
+    "heavy: marks computationally expensive tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true

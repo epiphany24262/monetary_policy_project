@@ -1,0 +1,9 @@
+﻿dataset,candidate,organization,url,access,coverage,license_terms,pros,cons,decision
+PBC monetary policy reports,A1,中国人民银行,https://www.pbc.gov.cn/zhengcehuobisi/125207/125227/125957/index.html,官方 HTML 索引和 PDF 附件,2001Q1 至当前最新完整期，索引页列示至 2026Q1,PBC 官网公共发布；再分发条款需随法律声明记录,官方、发布时间可核验、PDF 可直接下载,少数年份页面只有附件或排版不同，需要配置规则,primary
+PBC monetary policy reports,A2,地方金融办/商务部等官方镜像,https://jrj.sh.gov.cn/,官方转载附件,部分近期报告,官方转载；只能作为 PBC 链接失败时校验,可作为 PBC 附件失效时的备份,覆盖不完整，发布时间不一定是原始发布时间,fallback_only
+China government bond yields,B1,中央国债登记结算有限责任公司/中债估值中心,https://yield.chinabond.com.cn/cbweb-mn/yield_main?locale=zh_cN,ChinaBond 页面；AkShare bond_china_yield 作为采集工具,标准期限曲线，原型确认含 1年、5年、10年,中债信息产品存在授权要求；课程本地使用，公开包需谨慎处理原始数据,主检验期限齐全，单位为收益率百分比,接口区间受限，网站条款和再分发需记录,primary_with_redistribution_caution
+China government bond yields,B2,中国货币网,https://www.chinamoney.com.cn/chinese/bkcurvclosedy/,收盘收益率曲线页面及历史查询,国债等多类收盘曲线；原型接口需继续排查历史下载稳定性,公共页面；再分发条款待记录,官方市场基础设施来源,原型中历史接口返回结构异常，需要额外适配,fallback_after_adapter
+China broad equity index,C1,中证指数有限公司/交易所,https://www.csindex.com.cn/,官方指数页面或月报/下载入口,沪深300等宽基指数,指数数据授权条款需确认,官方指数编制机构,历史日行情批量下载入口不稳定，可能需人工或第三方接口,preferred_if_downloadable
+China broad equity index,C2,新浪/东方财富，经 AkShare 获取,https://akshare.akfamily.xyz/data/index/index.html,AkShare stock_zh_index_daily 或同类接口,原型确认沪深300日行情覆盖 2002 至 2026-06-18,第三方财经网站条款；公开再分发不默认允许,可自动化、覆盖长、字段完整,非官方，需抽样与官方月报/指数页核验,prototype_and_fallback
+Policy operations,D1,中国人民银行,https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125440/index.html,政策公告、公开市场业务公告、降准降息新闻稿,政策利率、降准、MLF、OMO、LPR 相关公告,PBC 官网公共发布；再分发条款随法律声明记录,官方来源，适合冻结 ActionNearby 清单,事件类型分散，需要规则化整理,primary
+Policy operations,D2,全国银行间同业拆借中心/中国货币网,https://www.chinamoney.com.cn/,LPR、市场利率和操作公告辅助核验,LPR 和货币市场相关数据,公共页面；再分发条款待记录,可交叉验证利率日期与幅度,不能替代 PBC 作为政策操作主来源,cross_check
