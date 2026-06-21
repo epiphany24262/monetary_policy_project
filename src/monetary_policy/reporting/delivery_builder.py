@@ -52,12 +52,12 @@ COMMON_IGNORES = shutil.ignore_patterns(
 def _write_submission_readme() -> None:
     (FINAL_SUBMISSION_DIR / "README.md").write_text(
         "# 货币政策沟通课设提交包\n\n"
-        "本目录包含课程论文、复现 Notebook、正式代码、配置、处理后数据和结果文件。研究使用中国人民银行季度货币政策执行报告、沪深300指数和国债收益率曲线数据，考察政策指引文本创新度与金融市场反应。\n\n"
+        "本目录包含课程论文、复现 Notebook、源代码、配置、处理后数据和结果文件。\n\n"
         "## 目录结构\n\n"
         "- `configs/`：样本边界、路径和模型设定。\n"
         "- `src/monetary_policy/`：数据处理、文本测量、事件研究和论文生成代码。\n"
         "- `scripts/`：辅助执行脚本。\n"
-        "- `tests/`：复现一致性测试。\n"
+        "- `tests/`：一致性测试。\n"
         "- `notebooks/`：已执行的核心流程 Notebook。\n"
         "- `data/`：清洗文本、处理后市场数据和人工标注样本。\n"
         "- `output/results/`、`output/tables/`、`output/figures/`：正式结果、表格和图形。\n"
@@ -69,7 +69,7 @@ def _write_submission_readme() -> None:
         "python -m venv .venv\n"
         ".\\.venv\\Scripts\\python -m pip install -r requirements.txt\n"
         "```\n\n"
-        "macOS/Linux 可使用：\n\n"
+        "macOS/Linux：\n\n"
         "```bash\n"
         "python -m venv .venv\n"
         "./.venv/bin/python -m pip install -r requirements.txt\n"
@@ -89,8 +89,8 @@ def _write_submission_readme() -> None:
         "- `paper/课程论文_提交版.docx` 和 `paper/课程论文_提交版.pdf`。\n"
         "- `notebooks/货币政策沟通与金融市场反应.ipynb`。\n"
         "- `output/results/stock_volatility_main.json`、`output/results/daily_egarch_x_results.json` 和 `output/results/yield_curve_results.csv`。\n\n"
-        "## 数据来源说明\n\n"
-        "报告文本来自中国人民银行官网。股票指数、国债收益率和政策操作数据均保留来源登记，见 `data/source_registry.csv`。若课程平台要求另行提交原始市场数据，应先确认数据源再分发许可。\n",
+        "## 数据来源\n\n"
+        "报告文本来自中国人民银行官网。股票指数、国债收益率和政策操作数据均保留来源登记，见 `data/source_registry.csv`。\n",
         encoding="utf-8",
     )
 
@@ -173,7 +173,18 @@ def build_final_submission() -> dict:
     _write_submission_pytest_ini()
     _copy_tree(ROOT / "configs", FINAL_SUBMISSION_DIR / "configs", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "src" / "monetary_policy", FINAL_SUBMISSION_DIR / "src" / "monetary_policy", ignore=COMMON_IGNORES)
-    _copy_tree(ROOT / "scripts", FINAL_SUBMISSION_DIR / "scripts", ignore=COMMON_IGNORES)
+    # Only ship essential scripts; gate/QA/diagnostic scripts are internal dev tools
+    ESSENTIAL_SCRIPTS = [
+        "run_daily_egarch_x_locked.py",
+        "build_submission.py",
+        "export_pdf.py",
+        "generate_table_value_mapping.py",
+    ]
+    _copy_file(ROOT / "scripts" / "__init__.py", FINAL_SUBMISSION_DIR / "scripts" / "__init__.py") if (ROOT / "scripts" / "__init__.py").exists() else None
+    for script_name in ESSENTIAL_SCRIPTS:
+        src = ROOT / "scripts" / script_name
+        if src.exists():
+            _copy_file(src, FINAL_SUBMISSION_DIR / "scripts" / script_name)
     _copy_tree(ROOT / "tests", FINAL_SUBMISSION_DIR / "tests", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "notebooks", FINAL_SUBMISSION_DIR / "notebooks", ignore=COMMON_IGNORES)
     _copy_tree(ROOT / "paper", FINAL_SUBMISSION_DIR / "paper", ignore=COMMON_IGNORES)
