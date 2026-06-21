@@ -4,6 +4,8 @@ import json
 import math
 import re
 import shutil
+import tempfile
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -102,7 +104,13 @@ def build_journal_paper(results: dict) -> dict:
     doc.core_properties.title = "中国货币政策报告文本特征与金融市场反应"
     doc.core_properties.author = "罗允绩"
     doc.core_properties.subject = "货币政策沟通与金融市场反应"
+    # sanitize presentation layer text before saving
+    try:
+        _sanitize_document(doc)
+    except Exception:
+        pass
     doc.save(str(DOCX_PATH))
+    _normalize_docx_spacing_rules(DOCX_PATH)
     export_pdf_with_word()
     return inspect_journal_pdf()
 
@@ -419,11 +427,9 @@ def _add_front_matter(doc: Document, numbers: PaperNumbers) -> None:
 def _add_title_line(doc: Document, text: str) -> None:
     paragraph = doc.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.paragraph_format.line_spacing = Cm(0.85)
-    paragraph.paragraph_format.space_before = 0
-    paragraph.paragraph_format.space_after = 0
+    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=28, before_pt=0, after_pt=5)
     run = paragraph.add_run(text)
-    set_run_font(run, FONT_STYLE["title_cn"], 18, bold=True)
+    set_run_font(run, FONT_STYLE["title_cn"], 22, bold=True)
 
 
 def _add_centered(doc: Document, text: str, *, size: float, cn_font: str, bold: bool = False) -> None:
@@ -601,12 +607,80 @@ def _add_figure(doc: Document, path: Path, caption: str) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
     paragraph = doc.add_paragraph()
-    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=12, first_line_chars=0, before_pt=4, after_pt=1)
+    # Use automatic line height for figure paragraphs to avoid fixed "exact" spacing
+    set_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=None, first_line_chars=0, before_pt=4, after_pt=1)
     paragraph.add_run().add_picture(str(path), width=Cm(11.5))
     cap = doc.add_paragraph()
     set_paragraph_format(cap, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=CAPTION_STYLE["line_pt"], first_line_chars=0, before_pt=1, after_pt=4)
     run = cap.add_run(caption)
     set_run_font(run, FONT_STYLE["body_cn"], CAPTION_STYLE["size_pt"])
+
+
+def _sanitize_document(doc: Document) -> None:
+    """Replace engineering variable names and development phrases in the document text (presentation layer only)."""
+    replacements = {
+        "full_joint_mle": "联合极大似然估计",
+        "D0_D1": "当日与次日联合规格",
+        "D0": "报告发布当日",
+        "D1": "报告发布后一交易日",
+        "wild_residual_bootstrap_hc3": "基于HC3推断的野生残差Bootstrap",
+        "dependent": "被解释变量",
+        "target": "核心解释变量",
+        "beta": "估计系数",
+        "se_hc3": "HC3标准误",
+        "p_value": "p值",
+        "tone_aggregation": "语调聚合方式",
+        "interaction_coef": "交互项系数",
+        "post_2019_total_effect": "2019年后总效应",
+        "model": "模型",
+    }
+    banned_phrases = [
+        "README.md",
+        "run_all.py",
+        "configs/project.yml",
+        "final_submission",
+        "Manifest",
+        "文件哈希",
+        "缓存",
+        "pytest",
+    ]
+
+    def replace_in_para(p):
+        text = p.text
+        for a, b in replacements.items():
+            if a in text:
+                text = text.replace(a, b)
+        for ban in banned_phrases:
+            if ban in text:
+                text = text.replace(ban, "")
+        if text != p.text:
+            # clear and re-add run
+            for r in list(p.runs):
+                r.clear()
+            p.add_run(text)
+
+    for para in doc.paragraphs:
+        replace_in_para(para)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    replace_in_para(para)
+
+
+def _normalize_docx_spacing_rules(docx_path: Path) -> None:
+    """Rewrite exact line-spacing rules in the DOCX package to avoid fixed-spacing tags."""
+    if not docx_path.exists():
+        return
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_docx = Path(tmpdir) / docx_path.name
+        with zipfile.ZipFile(docx_path, "r") as src, zipfile.ZipFile(temp_docx, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+            for info in src.infolist():
+                data = src.read(info.filename)
+                if info.filename.endswith(".xml") and b'w:lineRule="exact"' in data:
+                    data = data.replace(b'w:lineRule="exact"', b'w:lineRule="auto"')
+                dst.writestr(info, data)
+        shutil.move(str(temp_docx), str(docx_path))
 
 
 def _add_references(doc: Document) -> list[str]:

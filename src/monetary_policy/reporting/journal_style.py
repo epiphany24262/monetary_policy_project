@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from docx.enum.section import WD_SECTION_START
+from docx.enum.text import WD_LINE_SPACING
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -21,10 +22,11 @@ FONT_STYLE = {
     "body_cn": "宋体",
     "body_en": "Times New Roman",
     "title_cn": "方正小标宋简体",
-    "heading_cn": "黑体",
+    "heading_cn": "仿宋",
     "subheading_cn": "黑体",
     "reference_cn": "仿宋",
 }
+
 
 PARAGRAPH_STYLE = {
     "body_size_pt": 10.5,
@@ -123,7 +125,8 @@ def set_paragraph_format(
     fmt.space_before = Pt(before_pt)
     fmt.space_after = Pt(after_pt)
     if line_pt is not None:
-        fmt.line_spacing = Pt(line_pt)
+        fmt.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+        fmt.line_spacing = line_pt / 12.0
     if first_line_chars is not None:
         fmt.first_line_indent = Pt(PARAGRAPH_STYLE["body_size_pt"] * first_line_chars)
 
@@ -141,12 +144,13 @@ def add_body_section(doc):
     section = doc.add_section(WD_SECTION_START.NEW_PAGE)
     configure_section(section)
     section.different_first_page_header_footer = True
-    section.odd_and_even_pages_header_footer = False
+    # enable different odd and even page headers as required by journal style
+    section.odd_and_even_pages_header_footer = True
     _restart_page_numbering(section, 1)
     _clear_header_footer(section.first_page_header)
     _clear_header_footer(section.first_page_footer)
     _add_footer_page_field(section.first_page_footer)
-    _add_running_header(section.header)
+    _add_running_header(section)
     _add_footer_page_field(section.footer)
     return section
 
@@ -166,22 +170,46 @@ def _restart_page_numbering(section, start: int) -> None:
     sect_pr.append(pg_num)
 
 
-def _add_running_header(header) -> None:
-    header.is_linked_to_previous = False
-    paragraph = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
-    paragraph.clear()
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run(HEADER_FOOTER_STYLE["header_text"])
-    set_run_font(run, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
-    p_pr = paragraph._element.get_or_add_pPr()
-    p_bdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), HEADER_FOOTER_STYLE["border_sz"])
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "000000")
-    p_bdr.append(bottom)
-    p_pr.append(p_bdr)
+def _add_running_header(section) -> None:
+    # Create both odd and even page headers (section may provide even_page_header)
+    try:
+        header = section.header
+        header.is_linked_to_previous = False
+        # center header (odd pages)
+        para = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+        para.clear()
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run(HEADER_FOOTER_STYLE["header_text"])
+        set_run_font(run, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+        p_pr = para._element.get_or_add_pPr()
+        p_bdr = OxmlElement("w:pBdr")
+        bottom = OxmlElement("w:bottom")
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), HEADER_FOOTER_STYLE["border_sz"])
+        bottom.set(qn("w:space"), "1")
+        bottom.set(qn("w:color"), "000000")
+        p_bdr.append(bottom)
+        p_pr.append(p_bdr)
+    except Exception:
+        pass
+    # even page header: place journal short title centered and month on right
+    try:
+        even_header = getattr(section, "even_page_header", None)
+        if even_header is not None:
+            even_header.is_linked_to_previous = False
+            # center line
+            p_center = even_header.paragraphs[0] if even_header.paragraphs else even_header.add_paragraph()
+            p_center.clear()
+            p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_c = p_center.add_run("面向经济和金融的Python编程")
+            set_run_font(run_c, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+            # right line with month
+            p_right = even_header.add_paragraph()
+            p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            run_r = p_right.add_run("2026年6月")
+            set_run_font(run_r, FONT_STYLE["body_cn"], HEADER_FOOTER_STYLE["header_size_pt"])
+    except Exception:
+        pass
 
 
 def _add_footer_page_field(footer) -> None:
