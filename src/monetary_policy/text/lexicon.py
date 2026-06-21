@@ -220,8 +220,8 @@ def _build_change_report(old: dict, new: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def archive_v1_and_save_v2(lexicon: Lexicon) -> None:
-    """Archive the v1 snapshot (if not already saved) and save v2."""
+def save_v1_snapshot_and_v2(lexicon: Lexicon) -> None:
+    """Save the v1 snapshot if needed and save v2."""
     LEXICON_VERSION_DIR.mkdir(parents=True, exist_ok=True)
     v1_path = _version_snapshot_path(1)
     if not v1_path.exists():
@@ -301,8 +301,8 @@ def build_combined_lexicon() -> Lexicon:
         version=CURRENT_VERSION,
         revision_note=revision_note,
     )
-    # Version management: archive v1 and save v2
-    archive_v1_and_save_v2(lexicon)
+    # Version management: save v1 snapshot and v2
+    save_v1_snapshot_and_v2(lexicon)
     # Write combined CSV
     rows = []
     for category, words in [

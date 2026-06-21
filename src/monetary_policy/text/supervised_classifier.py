@@ -1,6 +1,6 @@
 """Lightweight supervised text classifier: char TF-IDF + LinearSVC.
 
-Fixed model per the final technical route — no BERT, no LLM, no grid search.
+Fixed lightweight model: char TF-IDF + LinearSVC, no grid search.
 StratifiedGroupKFold with group=report_id prevents cross-report leakage.
 """
 

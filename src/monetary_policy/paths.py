@@ -24,7 +24,7 @@ def normalize_relative_path(value: str | Path) -> Path:
     """Return a platform-native Path from a stored relative path.
 
     CSV artifacts are written with POSIX separators.  This reader still accepts
-    older Windows-style separators so the legacy processed data remain usable.
+    older Windows-style separators so previously processed data remain usable.
     """
     return Path(str(value).replace("\\", "/"))
 

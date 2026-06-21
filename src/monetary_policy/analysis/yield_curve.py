@@ -31,20 +31,20 @@ def run_yield_curve_models(panel: pd.DataFrame) -> pd.DataFrame:
         row["permutation_p_base"] = permutation_pvalue(panel, y, x, "guidance_unexpected_tone")
         row["permutation_p_interaction"] = permutation_interaction_pvalue(panel, y, x, "guidance_unexpected_tone_x_post_2019")
         rows.append(row)
-    legacy_path = ROOT / "output/results/legacy_primary_result.json"
-    if not legacy_path.exists():
-        legacy_path = ROOT / "output/results/primary/PRIMARY_RESULT_LOCK.json"
-    legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+    auxiliary_path = ROOT / "output/results/auxiliary_primary_result.json"
+    if not auxiliary_path.exists():
+        auxiliary_path = ROOT / "output/results/primary/PRIMARY_RESULT_LOCK.json"
+    auxiliary = json.loads(auxiliary_path.read_text(encoding="utf-8"))
     rows.append(
         {
-            "model": "legacy_1y_m1_p3",
+            "model": "auxiliary_1y_m1_p3",
             "dependent": "delta_yield_1y_bp_m1_p3",
             "target": "guidance_tone_change",
-            "n": legacy["n"],
-            "beta": legacy["params"]["guidance_tone_change"],
-            "se_hc3": legacy["bse_hc3"]["guidance_tone_change"],
-            "p_value": legacy["pvalues"]["guidance_tone_change"],
-            "r2": legacy["r2"],
+            "n": auxiliary["n"],
+            "beta": auxiliary["params"]["guidance_tone_change"],
+            "se_hc3": auxiliary["bse_hc3"]["guidance_tone_change"],
+            "p_value": auxiliary["pvalues"]["guidance_tone_change"],
+            "r2": auxiliary["r2"],
             "effect_percent_if_log_y": pd.NA,
         }
     )

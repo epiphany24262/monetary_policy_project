@@ -131,17 +131,34 @@ def write_power_outputs(result: pd.DataFrame) -> dict[str, Path]:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib import font_manager
+    from pathlib import Path as _Path
+    # Load CJK font explicitly
+    candidates = [r"C:\Windows\Fonts\simsun.ttc", r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\msyh.ttc"]
+    font_path = next((p for p in candidates if _Path(p).exists()), None)
+    if font_path:
+        zh_font = font_manager.FontProperties(fname=font_path, size=7.5)
+    else:
+        zh_font = None
     valid = result.dropna(subset=["power"])
     if len(valid) > 0:
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(valid["sample_size"], valid["power"], "ko-", markersize=6)
-        ax.axhline(0.8, color="gray", linestyle="--", linewidth=0.8, label="80%检验功效")
-        ax.set_xlabel("独立报告事件数")
-        ax.set_ylabel("检验功效")
-        ax.set_title("政策指引创新度检验功效曲线 (α=0.05)")
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(FIGURES_DIR / "figure_market_power_curve.png", dpi=200)
+        fig, ax = plt.subplots(figsize=(4.72, 1.57))  # 12cm × 4cm at 300dpi
+        ax.plot(valid["sample_size"], valid["power"], "k-", linewidth=0.8, label="当前估计效应")
+        ax.axhline(0.8, color="gray", linestyle="--", linewidth=0.6, label="80%检验功效")
+        ax.set_xlabel("独立报告事件数", fontsize=7.5, fontproperties=zh_font if zh_font else None)
+        ax.set_ylabel("检验功效", fontsize=7.5, fontproperties=zh_font if zh_font else None)
+        ax.set_title("市场检验功效与事件样本量", fontsize=8, fontweight="bold", fontproperties=zh_font if zh_font else None)
+        ax.set_xticks([79, 100, 120, 160])
+        ax.set_ylim(0, 1.05)
+        ax.tick_params(labelsize=7, direction="in")
+        if zh_font:
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontproperties(zh_font)
+        ax.legend(fontsize=7, frameon=False, loc="lower right", prop=zh_font if zh_font else None)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        fig.tight_layout(pad=0.3)
+        fig.savefig(FIGURES_DIR / "figure_market_power_curve.png", dpi=300, facecolor="white")
         plt.close(fig)
 
     return {"csv": csv_path, "xlsx": xlsx_path, "figure": FIGURES_DIR / "figure_market_power_curve.png"}

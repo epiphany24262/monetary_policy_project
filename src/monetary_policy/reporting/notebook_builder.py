@@ -41,13 +41,20 @@ def build_notebook() -> None:
         nbf.v4.new_code_cell(
             "registry = pd.read_csv(ROOT / 'data/source_registry.csv')\n"
             "display(registry[['dataset_name','source_organization','coverage_start','coverage_end','license_or_terms']])\n"
-            "repair = pd.read_excel(ROOT / 'output/diagnostics/section_repair_report.xlsx')\n"
-            "display(repair)"
+            "repair_path = ROOT / 'output/diagnostics/section_repair_report.xlsx'\n"
+            "if repair_path.exists():\n"
+            "    display(pd.read_excel(repair_path))\n"
+            "else:\n"
+            "    print('section repair diagnostics not packaged; run_all.py --offline regenerates them')"
         ),
         nbf.v4.new_markdown_cell("## 3. 当前词典实时重打分与人工标注验证"),
         nbf.v4.new_code_cell(
-            "metrics = pd.read_excel(ROOT / 'output/diagnostics/text_validation_metrics.xlsx', sheet_name='summary')\n"
-            "display(metrics.T)"
+            "metrics_path = ROOT / 'output/diagnostics/text_validation_metrics.xlsx'\n"
+            "if metrics_path.exists():\n"
+            "    display(pd.read_excel(metrics_path, sheet_name='summary').T)\n"
+            "else:\n"
+            "    text_model = json.loads((ROOT / 'output/results/text_model_evaluation.json').read_text(encoding='utf-8'))\n"
+            "    display(pd.DataFrame([{k: v for k, v in obj.items() if k in ['n','n_groups','accuracy','macro_f1']} for obj in text_model.values() if isinstance(obj, dict) and 'accuracy' in obj]))"
         ),
         nbf.v4.new_markdown_cell("## 4. 字符 TF-IDF + LinearSVC 分组交叉验证"),
         nbf.v4.new_code_cell(
@@ -91,7 +98,13 @@ def build_notebook() -> None:
             "print('comparison:', egarch_x.get('comparison'))"
         ),
         nbf.v4.new_markdown_cell("## 9. 市场功效分析"),
-        nbf.v4.new_code_cell("power = pd.read_csv(ROOT / 'output/diagnostics/market_power_analysis.csv')\ndisplay(power)"),
+        nbf.v4.new_code_cell(
+            "power_path = ROOT / 'output/diagnostics/market_power_analysis.csv'\n"
+            "if not power_path.exists():\n"
+            "    power_path = ROOT / 'output/tables/table8_market_power.csv'\n"
+            "power = pd.read_csv(power_path)\n"
+            "display(power)"
+        ),
         nbf.v4.new_markdown_cell("## 10. 跨拟合政策语调与国债收益率曲线探索"),
         nbf.v4.new_code_cell(
             "bond = pd.read_csv(ROOT / 'output/results/cross_fitted_bond_exploration.csv')\n"

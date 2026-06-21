@@ -6,7 +6,7 @@ import re
 import pandas as pd
 
 from .config import load_config
-from .paths import RESEARCH_DIR
+from .paths import CONFIG_PATH, RESEARCH_DIR
 
 
 PERIOD_RE = re.compile(r"^(\d{4})Q([1-4])$")
@@ -40,6 +40,9 @@ def sample_bounds() -> tuple[str, str]:
 def verify_final_analysis_plan() -> None:
     plan = RESEARCH_DIR / "FINAL_ANALYSIS_PLAN.md"
     sha_path = RESEARCH_DIR / "FINAL_ANALYSIS_PLAN.sha256"
+    if not plan.exists() or not sha_path.exists():
+        plan = CONFIG_PATH.parent / "FINAL_ANALYSIS_PLAN.md"
+        sha_path = CONFIG_PATH.parent / "FINAL_ANALYSIS_PLAN.sha256"
     if not plan.exists() or not sha_path.exists():
         raise FileNotFoundError("Missing locked FINAL_ANALYSIS_PLAN.md or FINAL_ANALYSIS_PLAN.sha256")
     expected = sha_path.read_text(encoding="utf-8").strip().split()[0]

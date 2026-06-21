@@ -1,76 +1,75 @@
 # 中国货币政策报告文本特征与金融市场反应
 
-本项目是一个可复现的本科课程研究，主题为中国人民银行货币政策执行报告的文本特征与金融市场反应。文本数据库覆盖 2006Q1 至 2026Q1，正式实证样本锁定为 2006Q1 至 2025Q4。研究重点包括：
+本项目是《面向经济和金融的 Python 编程》课程研究。研究使用中国人民银行季度货币政策执行报告、沪深300指数、国债收益率曲线和公开政策操作数据，考察政策指引文本创新度与金融市场短期反应之间的关系。
 
-1. 政策指引章节扩展 TF-IDF 创新度与股票市场事件后波动；
-2. 政策指引和宏观章节金融情感与股票短期收益；
-3. 未预期政策语调与国债收益率曲线水平、斜率和曲率。
+## 项目简介
 
-## 环境
+核心检验使用政策指引章节的扩展窗口 TF-IDF 创新度解释报告发布后五个交易日股票实际波动率。日度稳健性采用 Student-t EGARCH-X 模型。文本测量通过人工句子标注、语境门控规则、字符 TF-IDF 与 LinearSVC 的按报告分组交叉验证进行验证。债券市场部分使用未预期政策语调和跨拟合监督语调考察国债收益率曲线变化，作为探索性扩展。
 
-建议使用 Python 3.12。Windows 下可执行：
+## 目录结构
+
+- `configs/`：样本边界、路径和模型设定。
+- `src/monetary_policy/`：数据处理、文本测量、事件研究、图表和论文生成代码。
+- `scripts/`：辅助执行脚本。
+- `tests/`：复现一致性测试。
+- `notebooks/`：已执行的核心流程 Notebook。
+- `data/processed/`：处理后文本特征、事件面板和市场数据。
+- `data/validation/`：人工句子标注样本。
+- `data/source_registry.csv`：数据来源、覆盖期和许可说明。
+- `output/results/`、`output/tables/`、`output/figures/`：正式结果、表格和图形。
+- `paper/`：课程论文 DOCX、PDF和论文数字、引用核对表。
+- `delivery/`：提交包清单和压缩文件。
+
+## 环境安装
+
+建议使用 Python 3.12。Windows PowerShell：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+macOS/Linux：
 
 ```bash
 python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
+./.venv/bin/python -m pip install -r requirements.txt
 ```
 
-也可以参考 `environment.yml` 创建环境。
+## 运行方法
 
-## 复现命令
+使用本地固定数据重建结果、Notebook、论文和提交包：
 
-使用本地固定数据完整重建结果、Notebook、论文和最终提交目录：
-
-```bash
-.venv\Scripts\python run_all.py --offline
+```powershell
+.\.venv\Scripts\python run_all.py --offline
 ```
 
 运行测试：
 
-```bash
-.venv\Scripts\python -m pytest -q
+```powershell
+.\.venv\Scripts\python -m pytest -q
 ```
 
-单独执行 Notebook：
+Notebook 可单独执行：
 
-```bash
-.venv\Scripts\jupyter-nbconvert --execute --to notebook --inplace notebooks/货币政策沟通与金融市场反应.ipynb --ExecutePreprocessor.timeout=420
+```powershell
+.\.venv\Scripts\jupyter-nbconvert --execute --to notebook --inplace notebooks/货币政策沟通与金融市场反应.ipynb --ExecutePreprocessor.timeout=420
 ```
 
-`--refresh-data` 为兼容参数；默认保护既有原始数据，不覆盖 `data/raw/`。
+## 主要输出
 
-## 目录
+- `paper/课程论文_提交版.docx`
+- `paper/课程论文_提交版.pdf`
+- `notebooks/货币政策沟通与金融市场反应.ipynb`
+- `output/results/stock_volatility_main.json`
+- `output/results/daily_egarch_x_results.json`
+- `output/results/yield_curve_results.csv`
+- `delivery/final_submission.zip`
 
-- `src/monetary_policy/`：正式业务代码，按数据、文本、事件、分析、图表和报告分层。
-- `data/raw/`：本地原始数据，不默认进入公开提交包。
-- `data/processed/`：可复现分析数据。
-- `data/dictionaries/`：公开金融情感词典和 PBC 领域扩展词典。
-- `research/`：文献矩阵、方法对照和锁定分析计划。
-- `output/figures/`、`output/tables/`、`output/results/`：图表、表格和模型结果。
-- `notebooks/货币政策沟通与金融市场反应.ipynb`：展示核心 Python 处理流程。
-- `paper/课程论文_提交版.docx`、`paper/课程论文_提交版.pdf`：课程论文。
-- `final_submission/`：面向教师提交的精简目录。
-- `archive/legacy_v1/`：早期版本代码、测试、Notebook、论文和原结果归档，不进入公开提交包。
+## 数据来源说明
 
-## 数据和许可
+货币政策报告来自中国人民银行官网。股票指数、国债收益率和政策操作数据保留来源登记、采集时间和处理后文件哈希，见 `data/source_registry.csv` 与 `DATA_LICENSE_AND_REDISTRIBUTION.md`。若课程平台要求另行提交原始市场数据，应先确认数据源再分发许可。
 
-报告数据来自中国人民银行官网。股票、债券和政策操作数据保留来源登记、采集时间和哈希，见 `data/source_registry.csv` 与 `DATA_LICENSE_AND_REDISTRIBUTION.md`。公开金融情感词典包括姜富伟等中文金融情感词典和 Du et al. 中文金融情感词典；后者为 GPL-3.0，最终提交说明保留许可证文件和引用要求。
+## 复现注意事项
 
-## 主要结果
-
-当前主检验使用政策指引扩展 TF-IDF 创新度、2019 年后虚拟变量及其交互项解释报告发布后五日股票实际波动率；债券探索性基准规格使用未预期政策语调、2019 年后虚拟变量及其交互项解释收益率曲线斜率 `[0,+3]` 变化。股票收益和其他收益率曲线因子作为补充证据报告。
-
-## 提交前事项
-
-论文封面中的作者、学号和任课教师需要手工补齐。若课程平台要求提交原始市场数据，请先确认数据再分发许可。
-
-## 文本分类实验性审计
-
-`experiments/` 中保存一组不会改变冻结主模型的有限探索：
-
-```bash
-python experiments/text_pipeline_probe.py
-python experiments/crossfit_tone_market_probe.py
-```
-
-实验确认旧验证流程曾复用标注模板中的过期自动分数；当前验证代码已改为使用最新词典重新计分，并单独报告“政策相关句的方向识别”。字符 TF-IDF + LinearSVC 在按报告分组的交叉验证中可作为情感和政策倾向的替代测量，但跨拟合政策语调并未稳定改善债券回归，因此不替换文本创新度主线。完整结论见 `EXPERIMENTAL_ROUTE_ASSESSMENT.md`。
+默认命令使用已生成的本地数据和正式估计结果。若需要重新估计计算量较大的日度 EGARCH-X 模型，可在确认环境依赖后使用 `--recompute-heavy`；若只需更新学习曲线、跨拟合语调和功效分析，可使用 `--recompute-text-diagnostics`。

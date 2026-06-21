@@ -33,7 +33,7 @@ from .events.event_panel import build_stock_event_panel, build_stock_volatility_
 from .paths import FIGURES_DIR, OUTPUT_DIR, PAPER_DIR, PROCESSED_DIR, RESEARCH_DIR, RESULTS_DIR, TABLES_DIR, ensure_dirs, ROOT, as_posix_relative
 from .reporting.delivery_builder import build_final_submission, write_submission_manifests
 from .reporting.notebook_builder import build_notebook, execute_notebook
-from .reporting.paper_builder import build_paper, inspect_pdf
+from .reporting.journal_paper_builder import build_journal_paper
 from .sample import filter_formal_sample, is_in_formal_sample, sample_bounds, verify_final_analysis_plan
 from .text.lexicon import build_combined_lexicon
 from .text.section_repair import repair_guidance_sections
@@ -362,12 +362,12 @@ def build_results(
     return_table.to_csv(RESULTS_DIR / "stock_return_results.csv", index=False, encoding="utf-8-sig")
     curve_table.to_csv(RESULTS_DIR / "yield_curve_results.csv", index=False, encoding="utf-8-sig")
     robust_table.to_csv(RESULTS_DIR / "robustness_results.csv", index=False, encoding="utf-8-sig")
-    legacy = ROOT / "output" / "results" / "primary" / "PRIMARY_RESULT_LOCK.json"
-    legacy_copy = RESULTS_DIR / "legacy_primary_result.json"
-    if legacy.exists():
-        shutil.copy2(legacy, legacy_copy)
-    elif not legacy_copy.exists():
-        raise FileNotFoundError("Missing legacy primary result: output/results/legacy_primary_result.json")
+    auxiliary_source = ROOT / "output" / "results" / "primary" / "PRIMARY_RESULT_LOCK.json"
+    auxiliary_copy = RESULTS_DIR / "auxiliary_primary_result.json"
+    if auxiliary_source.exists():
+        shutil.copy2(auxiliary_source, auxiliary_copy)
+    elif not auxiliary_copy.exists():
+        raise FileNotFoundError("Missing auxiliary primary result: output/results/auxiliary_primary_result.json")
 
     plot_tone_series(text_features, FIGURES_DIR / "figure1_tone_series.png")
     plot_similarity(text_features, FIGURES_DIR / "figure2_similarity.png")
@@ -694,12 +694,11 @@ def run_pipeline(
         recompute_text_diagnostics=recompute_text_diagnostics,
     )
     build_notebook()
-    build_paper(results)
+    pdf_check = build_journal_paper(results)
     if execute_nb:
         notebook_result = execute_notebook()
     else:
         notebook_result = {"returncode": 0, "skipped": True}
-    pdf_check = inspect_pdf()
     notebook_path = ROOT / "notebooks" / "货币政策沟通与金融市场反应.ipynb"
     summary = {
         "status": "PASS",

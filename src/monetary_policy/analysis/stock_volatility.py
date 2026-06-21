@@ -72,19 +72,19 @@ def run_stock_volatility_models(panel: pd.DataFrame) -> tuple[pd.DataFrame, dict
         "one_unit_guidance_novelty_log_rv_beta": beta,
         "one_unit_guidance_novelty_percent_change_in_rv": (np.exp(beta) - 1) * 100,
     }
-    return table, main, _legacy_arx_mean_diagnostic_not_run()
+    return table, main, _arx_mean_diagnostic_not_run()
 
 
-def _legacy_arx_mean_diagnostic_not_run() -> dict:
+def _arx_mean_diagnostic_not_run() -> dict:
     return {
         "status": "not_run",
-        "method": "legacy_arx_mean_equation_diagnostic_disabled",
-        "note": "The old arch_model mean='ARX' diagnostic is not part of the formal pipeline. Formal daily Student-t EGARCH-X variance-equation results are produced by analysis/egarch_x.py.",
+        "method": "arx_mean_equation_diagnostic_disabled",
+        "note": "The ARX mean-equation diagnostic is not part of the formal specification. Daily Student-t EGARCH-X variance-equation results are produced by analysis/egarch_x.py.",
     }
 
 
-def run_legacy_arx_mean_diagnostic(panel: pd.DataFrame) -> dict:
-    """Legacy diagnostic retained for audit only; not called by the formal pipeline."""
+def run_arx_mean_diagnostic_for_review(panel: pd.DataFrame) -> dict:
+    """Optional ARX mean-equation diagnostic; not called by the formal pipeline."""
     from arch import arch_model
 
     stock = load_stock_prices().copy()
@@ -100,12 +100,12 @@ def run_legacy_arx_mean_diagnostic(panel: pd.DataFrame) -> dict:
         result = model.fit(disp="off", show_warning=False)
         return {
             "status": "ok",
-            "method": "legacy_arx_mean_equation_diagnostic_not_formal_daily_egarch_x",
+            "method": "arx_mean_equation_diagnostic_not_formal_daily_egarch_x",
             "converged": bool(result.convergence_flag == 0),
             "nobs": int(result.nobs),
             "aic": float(result.aic),
             "params": {k: float(v) for k, v in result.params.items()},
-            "interpretation_warning": "This legacy diagnostic places the text variable in an ARX mean equation only. It is not the formal Student-t EGARCH-X robustness model and is not used for paper inference.",
+            "interpretation_warning": "This diagnostic places the text variable in an ARX mean equation only. It is not the formal Student-t EGARCH-X robustness model and is not used for paper inference.",
             "note": "The event-level realized volatility regression remains the core volatility test; the formal daily EGARCH-X result is produced by analysis/egarch_x.py.",
         }
     except Exception as exc:

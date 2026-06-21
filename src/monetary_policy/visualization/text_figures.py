@@ -4,16 +4,34 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
+from pathlib import Path
 def set_style() -> None:
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS", "DejaVu Sans"]
+    """Apply journal black/white style with properly loaded CJK fonts."""
+    import matplotlib.pyplot as plt
+    from matplotlib import font_manager
+    # Find available CJK font
+    candidates = [
+        r"C:\Windows\Fonts\simsun.ttc",
+        r"C:\Windows\Fonts\simhei.ttf", 
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\simkai.ttf",
+    ]
+    existing = [p for p in candidates if Path(p).exists()]
+    if existing:
+        font_prop = font_manager.FontProperties(fname=existing[0])
+        font_name = font_prop.get_name()
+        plt.rcParams["font.sans-serif"] = [font_name, "SimSun", "SimHei", "Microsoft YaHei", "DejaVu Sans"]
+    else:
+        plt.rcParams["font.sans-serif"] = ["SimSun", "SimHei", "Microsoft YaHei", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
-    plt.rcParams["figure.dpi"] = 120
+    plt.rcParams["figure.dpi"] = 150
+    plt.rcParams["savefig.dpi"] = 300
+    plt.rcParams["savefig.facecolor"] = "white"
     # Journal black/white style
     plt.rcParams["axes.prop_cycle"] = plt.cycler(
         color=["#000000", "#555555", "#AAAAAA", "#333333", "#777777"]
     )
-    plt.rcParams["lines.linewidth"] = 1.2
-
+    plt.rcParams["lines.linewidth"] = 0.8
 
 def plot_tone_series(features: pd.DataFrame, path) -> pd.DataFrame:
     set_style()
@@ -37,7 +55,6 @@ def plot_tone_series(features: pd.DataFrame, path) -> pd.DataFrame:
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["macro_z_sentiment"], label="宏观章节金融情感", color="gray", linestyle="--")
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["guidance_z_policy_stance"], label="政策指引倾向", color="#555555", linewidth=1.2)
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_title("图1 政策指引、宏观语调与政策倾向")
     ax.set_ylabel("Z 标准化指数")
     ax.legend(loc="upper left", fontsize=8)
     ax2 = ax.twinx()
@@ -69,7 +86,6 @@ def plot_similarity(features: pd.DataFrame, path) -> pd.DataFrame:
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["guidance_novelty"], label="政策指引创新度（扩展 TF-IDF）", color="black")
     ax.plot(pd.to_datetime(df["publication_datetime"]), df["fulltext_novelty_expanding_tfidf"], label="全文创新度（扩展 TF-IDF）", color="gray", linestyle="--")
     ax.plot(pd.to_datetime(df["publication_datetime"]), 1 - df["similarity_char_ngram"], label="字符 n-gram 创新度", color="gray", linestyle=":")
-    ax.set_title("图2 相邻报告文本创新度")
     ax.set_ylabel("1 - 余弦相似度")
     ax.legend()
     fig.tight_layout()
