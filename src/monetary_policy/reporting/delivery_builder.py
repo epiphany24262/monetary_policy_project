@@ -180,7 +180,7 @@ def build_final_submission() -> dict:
         "export_pdf.py",
         "generate_table_value_mapping.py",
     ]
-    _copy_file(ROOT / "scripts" / "__init__.py", FINAL_SUBMISSION_DIR / "scripts" / "__init__.py") if (ROOT / "scripts" / "__init__.py").exists() else None
+    (FINAL_SUBMISSION_DIR / "scripts").mkdir(parents=True, exist_ok=True)
     for script_name in ESSENTIAL_SCRIPTS:
         src = ROOT / "scripts" / script_name
         if src.exists():
