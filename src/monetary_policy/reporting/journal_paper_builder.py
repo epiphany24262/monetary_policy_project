@@ -531,10 +531,19 @@ def _add_table(doc: Document, caption: str, df: pd.DataFrame, note: str = "") ->
     set_paragraph_format(cap, alignment=WD_ALIGN_PARAGRAPH.CENTER, line_pt=CAPTION_STYLE["line_pt"], before_pt=4, after_pt=2, keep_with_next=True)
     cap_run = cap.add_run(caption)
     set_run_font(cap_run, FONT_STYLE["subheading_cn"], TABLE_STYLE["caption_size_pt"], bold=True)
+    
+    base_key = "unknown"
+    if "表1" in caption: base_key = "table1"
+    elif "表2" in caption: base_key = "table2"
+    elif "表3" in caption: base_key = "table3"
+    elif "表4" in caption: base_key = "table4"
+    elif "表5" in caption: base_key = "table5"
+
     if "Panel" in df.columns:
-        _add_panel_tables(doc, df)
+        _add_panel_tables(doc, df, base_key)
     else:
-        _add_table_rows(doc, [list(df.columns)] + df.astype(str).values.tolist())
+        _add_table_rows(doc, [list(df.columns)] + df.astype(str).values.tolist(), semantic_key=base_key)
+        
     if note:
         p_note = doc.add_paragraph()
         set_paragraph_format(p_note, line_pt=11, first_line_chars=0, before_pt=2, after_pt=4)
@@ -542,7 +551,7 @@ def _add_table(doc: Document, caption: str, df: pd.DataFrame, note: str = "") ->
         set_run_font(run, FONT_STYLE["body_cn"], TABLE_STYLE["note_size_pt"])
 
 
-def _add_panel_tables(doc: Document, df: pd.DataFrame) -> None:
+def _add_panel_tables(doc: Document, df: pd.DataFrame, base_key: str) -> None:
     for panel, panel_df in df.groupby("Panel", sort=False):
         panel_paragraph = doc.add_paragraph()
         set_paragraph_format(panel_paragraph, line_pt=12, first_line_chars=0, before_pt=2, after_pt=1)
@@ -550,7 +559,9 @@ def _add_panel_tables(doc: Document, df: pd.DataFrame) -> None:
         set_run_font(panel_run, FONT_STYLE["heading_cn"], TABLE_STYLE["body_size_pt"], bold=True)
         columns = _panel_columns(panel_df)
         rows = [columns] + panel_df[columns].astype(str).values.tolist()
-        _add_table_rows(doc, rows)
+        
+        panel_key = f"{base_key}_panel_a" if "Panel A" in str(panel) else f"{base_key}_panel_b"
+        _add_table_rows(doc, rows, semantic_key=panel_key)
 
 
 def _panel_columns(panel_df: pd.DataFrame) -> list[str]:
@@ -563,35 +574,35 @@ def _panel_columns(panel_df: pd.DataFrame) -> list[str]:
     return columns
 
 
-def _add_table_rows(doc: Document, rows: list[list[str]]) -> None:
-    global _CURRENT_TABLE_INDEX
+def _add_table_rows(doc: Document, rows: list[list[str]], semantic_key: str = None) -> None:
     table = doc.add_table(rows=len(rows), cols=len(rows[0]))
     table.style = None
     clear_table_borders(table)
-    set_table_width(table, _table_widths(len(rows[0])))
+    set_table_width(table, _table_widths(len(rows[0]), semantic_key))
     
-    _CURRENT_TABLE_INDEX += 1
-    # Check if this is a panel by looking at first row (skip panel rows for vertical borders)
-    # Actually, we use the table order to match with TABLE_VERTICAL_CONFIG (1-indexed based on total tables added)
-    # For now, all vertical configs are explicitly empty, so no vertical lines are drawn, preventing grid formation.
-    config = TABLE_VERTICAL_CONFIG.get(_CURRENT_TABLE_INDEX, {})
+    config = TABLE_VERTICAL_CONFIG.get(semantic_key, {})
 
     for i, row_values in enumerate(rows):
         row = table.rows[i]
         mark_row_no_split(row)
-        is_panel = row_values[0].startswith("Panel ")
-        if is_panel:
-            cell = merge_row_cells(row)
-            set_cell_text(cell, row_values[0], bold=True, align=WD_ALIGN_PARAGRAPH.LEFT)
-            for cell_obj in row.cells:
-                set_cell_border(cell_obj, "top", TABLE_STYLE["top_border_sz"] if i == 0 else TABLE_STYLE["mid_border_sz"])
-                set_cell_border(cell_obj, "bottom", TABLE_STYLE["mid_border_sz"])
-            continue
-        is_header = i == 0 or (i > 0 and rows[i - 1][0].startswith("Panel "))
+        
+        is_header = i == 0
+        if is_header:
+            if semantic_key in ["table1", "table2_panel_a", "table3", "table4", "table5_panel_a"]:
+                for cell in row.cells:
+                    set_cell_border(cell, "top", TABLE_STYLE["top_border_sz"])
+
         for j, value in enumerate(row_values):
             align = WD_ALIGN_PARAGRAPH.CENTER
-            if i > 0 and j > 0:
-                align = WD_ALIGN_PARAGRAPH.RIGHT if _looks_numeric(value) else WD_ALIGN_PARAGRAPH.CENTER
+            if i > 0:
+                header_val = rows[0][j] if 0 < len(rows) and j < len(rows[0]) else ""
+                if "样本量" in header_val:
+                    align = WD_ALIGN_PARAGRAPH.CENTER
+                elif _looks_numeric(value):
+                    align = WD_ALIGN_PARAGRAPH.RIGHT
+                else:
+                    align = WD_ALIGN_PARAGRAPH.CENTER
+            
             set_cell_text(row.cells[j], value, bold=is_header, align=align)
             
             # Explicit vertical separators checking
@@ -601,23 +612,37 @@ def _add_table_rows(doc: Document, rows: list[list[str]]) -> None:
         if is_header:
             for cell in row.cells:
                 set_cell_border(cell, "bottom", TABLE_STYLE["mid_border_sz"])
+                
     for cell in table.rows[-1].cells:
-        set_cell_border(cell, "bottom", TABLE_STYLE["bottom_border_sz"])
+        if semantic_key in ["table1", "table2_panel_b", "table3", "table4", "table5_panel_b"]:
+            set_cell_border(cell, "bottom", TABLE_STYLE["bottom_border_sz"])
+        elif semantic_key in ["table2_panel_a", "table5_panel_a"]:
+            set_cell_border(cell, "bottom", TABLE_STYLE["mid_border_sz"])
 
 
-def _table_widths(n_cols: int) -> list[float]:
-    if n_cols == 2:
-        return [7.0, 7.0]
-    if n_cols == 3:
-        return [5.6, 4.4, 4.4]
-    if n_cols == 4:
-        return [4.6, 3.2, 3.2, 3.2]
-    if n_cols == 5:
+def _table_widths(n_cols: int, semantic_key: str = None) -> list[float]:
+    if semantic_key == "table1":
+        # 18%, 30%, 10%, 19%, 23% of 15.0cm
+        return [2.7, 4.5, 1.5, 2.85, 3.45]
+    if semantic_key == "table2_panel_a":
+        # 32%, 17%, 17%, 17%, 17% of 15.0cm
+        return [4.8, 2.55, 2.55, 2.55, 2.55]
+    if semantic_key == "table2_panel_b":
+        # 32%, 34%, 34% of 15.0cm
+        return [4.8, 5.1, 5.1]
+    if semantic_key == "table3":
+        # 38%, 10%, 17.33%, 17.33%, 17.33% of 15.0cm
+        return [5.7, 1.5, 2.6, 2.6, 2.6]
+    if semantic_key == "table4":
         # 38%, 15.5%, 15.5%, 15.5%, 15.5% of 15.0cm
         return [5.7, 2.325, 2.325, 2.325, 2.325]
-    if n_cols == 6:
-        # 26%, 10%, 15%, 11%, 21%, 17% of 15.0cm
-        return [3.9, 1.5, 2.25, 1.65, 3.15, 2.55]
+    if semantic_key == "table5_panel_a":
+        # 38%, 10%, 17.33%, 17.33%, 17.33% of 15.0cm
+        return [5.7, 1.5, 2.6, 2.6, 2.6]
+    if semantic_key == "table5_panel_b":
+        # 26%, 10%, 11%, 15%, 21%, 17% of 15.0cm
+        return [3.9, 1.5, 1.65, 2.25, 3.15, 2.55]
+        
     return [max(1.8, 15.0 / max(n_cols, 1))] * n_cols
 
 
