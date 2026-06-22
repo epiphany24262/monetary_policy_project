@@ -58,8 +58,7 @@ def _write_submission_readme() -> None:
         "- `configs/`：样本边界、路径和模型设定。\n"
         "- `notebooks/`：复现 Notebook。\n"
         "- `data/`：处理后数据和人工标注样本。\n"
-        "- `output/`：结果、表格和图形。\n"
-        "- `references/`：课程封面和版式模板。\n\n"
+        "- `output/`：结果、表格和图形。\n\n"
         "## 环境\n\n"
         "```powershell\n"
         "python -m venv .venv\n"
@@ -111,23 +110,12 @@ def _write_manifest(path: Path, rows: list[dict[str, int | str]]) -> None:
 
 def write_submission_manifests() -> dict:
     DELIVERY_DIR.mkdir(exist_ok=True)
-    (FINAL_SUBMISSION_DIR / "delivery").mkdir(parents=True, exist_ok=True)
     stale_manifest = DELIVERY_DIR / "final_package_manifest.csv"
     if stale_manifest.exists():
         stale_manifest.unlink()
     rows = _manifest_rows()
-    for manifest_path in [
-        FINAL_SUBMISSION_DIR / "delivery" / "FINAL_SUBMISSION_MANIFEST.csv",
-        DELIVERY_DIR / "FINAL_SUBMISSION_MANIFEST.csv",
-    ]:
-        _write_manifest(manifest_path, rows)
-    (DELIVERY_DIR / "FINAL_SUBMISSION_README.md").write_text(
-        "# 最终提交包说明\n\n"
-        "`final_submission/` 是面向课程教师的完整复现目录，仅保留论文、代码、数据、结果和必要配置。"
-        "正式提交建议压缩该目录内容为 `final_submission.zip`。\n",
-        encoding="utf-8",
-    )
-    return {"included_files": len(rows), "manifest": "delivery/FINAL_SUBMISSION_MANIFEST.csv"}
+    _write_manifest(DELIVERY_DIR / "FINAL_SUBMISSION_MANIFEST.csv", rows)
+    return {"included_files": len(rows)}
 
 
 def build_final_submission() -> dict:
@@ -170,11 +158,4 @@ def build_final_submission() -> dict:
             )
         elif src.exists():
             _copy_file(src, dst)
-    for rel in [
-        "references/journal_format/统计研究基本版式.docx",
-        "references/journal_format/课程论文封面.docx",
-    ]:
-        src = ROOT / rel
-        if src.exists():
-            _copy_file(src, FINAL_SUBMISSION_DIR / rel)
     return write_submission_manifests()
