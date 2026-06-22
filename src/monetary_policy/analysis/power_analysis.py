@@ -1,8 +1,4 @@
-"""Market power analysis via wild bootstrap / Monte Carlo simulation.
-
-Evaluates power for detecting guidance_novelty effects at various sample sizes,
-preserving the empirical design matrix structure and heteroskedasticity pattern.
-"""
+"""Power analysis via wild bootstrap."""
 
 from __future__ import annotations
 

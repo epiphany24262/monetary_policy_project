@@ -159,11 +159,6 @@ def base_degree_words() -> dict[str, float]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Version management
-# ---------------------------------------------------------------------------
-
-
 def _version_snapshot_path(version: int) -> Path:
     return LEXICON_VERSION_DIR / f"pbc_domain_v{version}.json"
 
@@ -266,11 +261,6 @@ def save_v1_snapshot_and_v2(lexicon: Lexicon) -> None:
     diag.mkdir(parents=True, exist_ok=True)
     shutil.copy2(v2_path, diag / f"lexicon_v2_snapshot.json")
     shutil.copy2(change_report_path, diag / "lexicon_v1_to_v2_changes.md")
-
-
-# ---------------------------------------------------------------------------
-# Combined lexicon builder
-# ---------------------------------------------------------------------------
 
 
 def build_combined_lexicon() -> Lexicon:

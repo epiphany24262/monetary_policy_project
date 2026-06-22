@@ -1,8 +1,4 @@
-"""Lightweight supervised text classifier: char TF-IDF + LinearSVC.
-
-Fixed lightweight model: char TF-IDF + LinearSVC, no grid search.
-StratifiedGroupKFold with group=report_id prevents cross-report leakage.
-"""
+"""Char TF-IDF + LinearSVC with grouped cross-validation."""
 
 from __future__ import annotations
 

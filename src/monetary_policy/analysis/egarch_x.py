@@ -1,13 +1,4 @@
-"""Custom Student-t EGARCH-X with exogenous variance regressors.
-
-Implements the variance equation:
-
-    log σ²_t = ω + α(|z_{t-1}| - E|z|) + γ z_{t-1} + β log σ²_{t-1}
-              + δ·ReportDay_t + λ·NoveltyEvent_t + ρ·PolicyAction_t
-
-Uses scipy.optimize for MLE with Student-t log-likelihood.
-Normal distribution provided as sensitivity check only.
-"""
+"""Student-t EGARCH-X with exogenous variance regressors."""
 
 from __future__ import annotations
 
@@ -300,10 +291,6 @@ def write_egarch_x_results(path: Path, result: dict, sensitivity: pd.DataFrame) 
     }
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
-
-# ---------------------------------------------------------------------------
-# Formal route: full daily recursion + frozen nuisance conditional likelihood
-# ---------------------------------------------------------------------------
 
 MODEL_VERSION = "daily_egarch_x_v2_full_sequence_fixed_nuisance"
 LOCKED_MODEL_VERSION = "daily_egarch_x_locked_full_joint_mle_v1"

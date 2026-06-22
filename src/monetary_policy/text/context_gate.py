@@ -1,12 +1,4 @@
-"""Context-gating rules for sentence-level policy stance classification.
-
-Per the final technical route, emotion/stance scoring must respect context:
-- Policy-goal sentences should not be auto-classified as positive just because
-  they contain "support, promote, improve, perfect" etc.
-- Stance directional judgment only applies when the sentence involves monetary
-  policy concepts (liquidity, credit, policy rates, etc.).
-- Fiscal, regulatory, and non-monetary-content sentences default to "irrelevant".
-"""
+"""Context-gating rules for policy stance classification."""
 
 from __future__ import annotations
 

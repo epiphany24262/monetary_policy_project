@@ -1,9 +1,4 @@
-"""Cross-fitted policy tone: train on other-fold manual labels, predict current fold.
-
-Produces sentence-level predictions and report-level aggregated policy tone.
-Three aggregation methods are pre-fixed: all_sentence_mean, policy_relevant_mean,
-directional_sentence_mean. The primary exploration uses policy_relevant_mean.
-"""
+"""Cross-fitted policy tone via grouped cross-validation."""
 
 from __future__ import annotations
 

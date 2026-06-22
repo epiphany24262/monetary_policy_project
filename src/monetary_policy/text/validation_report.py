@@ -1,10 +1,4 @@
-"""Text validation: compare auto lexicon labels with manual annotations.
-
-Computes accuracy, precision, recall, F1, confusion matrices for three tasks:
-- Sentiment (positive / neutral / negative)
-- Policy stance (dovish / hawkish / neutral / irrelevant)
-- Topic (growth / inflation / risk / exchange_rate / financial_stability / other)
-"""
+"""Text validation against manual annotations."""
 
 from __future__ import annotations
 
@@ -29,10 +23,6 @@ from .sentiment import score_text
 from .context_gate import gate_stance_label, load_context_rules
 from ..paths import FIGURES_DIR, OUTPUT_DIR
 
-# ---------------------------------------------------------------------------
-# Label conversion
-# ---------------------------------------------------------------------------
-
 
 def _auto_sentiment_label(score: float) -> str:
     if pd.isna(score) or score == 0:
@@ -52,24 +42,8 @@ def _auto_topic_label(attention: dict[str, float]) -> str:
     return best if attention.get(f"attention_{best}", 0.0) > 0 else "other"
 
 
-# ---------------------------------------------------------------------------
-# Core validation
-# ---------------------------------------------------------------------------
-
 
 def run_text_validation(annotation_path: Path | None = None) -> dict:
-    """Run full text validation comparing auto lexicon labels to manual labels.
-
-    Parameters
-    ----------
-    annotation_path : Path, optional
-        Path to the filled annotation Excel file.
-        Defaults to ``data/validation/manual_sentence_annotation_filled.xlsx``.
-
-    Returns
-    -------
-    dict with keys: sentiment, policy_stance, topic, disagreements, summary
-    """
     from ..paths import DATA_DIR
 
     if annotation_path is None:
@@ -80,10 +54,6 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
 
     df = pd.read_excel(annotation_path)
 
-    # ── Recompute all automatic scores with the current lexicon ──
-    # The annotation workbook stores scores generated when the sample was first
-    # created.  Those columns become stale after a lexicon revision.  Validation
-    # must therefore re-score every sentence instead of reusing cached values.
     lexicon = build_combined_lexicon()
     context_rules = load_context_rules()
     rescored = [score_text(str(sentence), lexicon) for sentence in df["sentence"]]
@@ -274,10 +244,6 @@ def run_text_validation(annotation_path: Path | None = None) -> dict:
         "summary": summary,
     }
 
-
-# ---------------------------------------------------------------------------
-# Output generation
-# ---------------------------------------------------------------------------
 
 
 def write_validation_outputs(validation: dict) -> dict[str, Path]:
