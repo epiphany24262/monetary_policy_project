@@ -69,7 +69,7 @@ def _write_submission_readme() -> None:
         ".\\.venv\\Scripts\\python run_all.py --offline\n"
         "```\n\n"
         "## 数据来源\n\n"
-        "报告文本来自中国人民银行官网，其他数据来源登记见 `data/source_registry.csv`。\n",
+        "报告文本来自中国人民银行官网，其他数据来源登记见 `data/source_registry.csv`。为控制提交包体积并遵守公开资料转载口径，未重复打包央行报告原始PDF；提交包已包含清洗文本、章节文本、来源网址及原文件SHA256，可直接离线复现实证分析。\n",
         encoding="utf-8",
     )
 
