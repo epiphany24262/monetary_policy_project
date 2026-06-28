@@ -33,7 +33,7 @@ def test_final_submission_excludes_internal_development_artifacts():
     assert (root / "src/monetary_policy").exists()
 
 
-def test_final_submission_is_independently_reproducible_package():
+def test_final_submission_is_independently_runnable_package():
     root = _package_root()
     required_paths = [
         "environment.yml",

@@ -69,7 +69,7 @@ def build_research_documents() -> None:
             "source": "姜富伟、胡逸驰、黄楠（2021）《央行货币政策报告文本信息、宏观经济与股票市场》",
             "verified_url": "https://www.jryj.org.cn/CN/abstract/abstract897.shtml",
             "method_used_by_source": "区分宏观经济信息和未来政策指引信息；使用金融情感词典、文本相似度、可读性；研究股票收益和波动。",
-            "project_use": "将政策指引创新度、金融情感和股票波动放入同一可复现框架。",
+            "project_use": "参考其区分文本信息的思路，将政策指引创新度、金融情感和股票波动放入同一可复核框架。",
             "not_adopted": "不照搬其全部市场和宏观控制变量，避免本科课设样本下过度参数化。",
         },
         {

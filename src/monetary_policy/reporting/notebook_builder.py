@@ -16,7 +16,7 @@ NOTEBOOK_PATH = NOTEBOOK_DIR / "货币政策沟通与金融市场反应.ipynb"
 
 def build_notebook() -> None:
     cells = [
-        nbf.v4.new_markdown_cell("# 中国货币政策文本课设最终复现 Notebook\n\n本 Notebook 展示固定路线下的数据处理、文本特征工程、分组交叉验证、金融事件研究、稳健性检验和提交包审计。所有数字均由代码读取正式结果文件。"),
+        nbf.v4.new_markdown_cell("# 中国货币政策文本课设运行与核验 Notebook\n\n本 Notebook 展示固定路线下的数据处理、文本特征工程、分组交叉验证、金融事件研究、稳健性检验和提交包审计。所有数字均由代码读取正式结果文件。"),
         nbf.v4.new_code_cell(
             "from pathlib import Path\n"
             "import json\n"

@@ -56,7 +56,7 @@ def _write_submission_readme() -> None:
         "- `paper/`：课程论文 DOCX 和 PDF。\n"
         "- `src/monetary_policy/`：全部源代码。\n"
         "- `configs/`：样本边界、路径和模型设定。\n"
-        "- `notebooks/`：复现 Notebook。\n"
+        "- `notebooks/`：运行与核验 Notebook。\n"
         "- `data/`：处理后数据和人工标注样本。\n"
         "- `output/`：结果、表格和图形。\n\n"
         "## 环境\n\n"
@@ -69,7 +69,7 @@ def _write_submission_readme() -> None:
         ".\\.venv\\Scripts\\python run_all.py --offline\n"
         "```\n\n"
         "## 数据来源\n\n"
-        "报告文本来自中国人民银行官网，其他数据来源登记见 `data/source_registry.csv`。为控制提交包体积并遵守公开资料转载口径，未重复打包央行报告原始PDF；提交包已包含清洗文本、章节文本、来源网址及原文件SHA256，可直接离线复现实证分析。\n",
+        "报告文本来自中国人民银行官网，其他数据来源登记见 `data/source_registry.csv`。为控制提交包体积并遵守公开资料转载口径，未重复打包央行报告原始PDF；提交包已包含清洗文本、章节文本、来源网址及原文件SHA256，可直接离线运行并核验本文实证分析。\n",
         encoding="utf-8",
     )
 
