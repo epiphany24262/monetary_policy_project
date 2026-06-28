@@ -20,6 +20,7 @@ checklists/
 tools/
 output/
 data/raw/
+references/
 
 # Top-level: only allow essentials
 /*
